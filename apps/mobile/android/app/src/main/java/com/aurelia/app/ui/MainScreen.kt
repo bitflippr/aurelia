@@ -10,7 +10,6 @@ import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.animation.core.Spring
@@ -512,10 +511,7 @@ fun MainScreen(
               Modifier.playerTransitionContentLayout(
                 fullHeight = with(density) { screenHeightPx.toDp() },
               ),
-            transitionSpec = {
-              fadeIn(animationSpec = tween(500)) togetherWith
-                fadeOut(animationSpec = tween(500))
-            },
+            transitionSpec = { playerContentTransform() },
             contentKey = { expanded -> expanded },
           ) { expanded ->
             if (expanded) {

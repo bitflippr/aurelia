@@ -6,10 +6,6 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.animation.core.rememberTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -28,14 +24,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
@@ -69,6 +68,35 @@ class PlayerSharedTransitionUiTest {
 
     composeTestRule.onNodeWithTag("mini-player").assertIsDisplayed().performClick()
     composeTestRule.runOnIdle { assertEquals(1, miniPlayerClicks.get()) }
+  }
+
+  @Test
+  fun midCollapseKeepsFullPlayerContentOpaque() {
+    val expansionProgress = mutableFloatStateOf(1f)
+
+    composeTestRule.setContent {
+      MaterialTheme {
+        PlayerTransitionHarness(
+          expansionProgress = expansionProgress.floatValue,
+          onMiniPlayerClick = {},
+        )
+      }
+    }
+
+    composeTestRule.onNodeWithTag("full-player").assertIsDisplayed()
+    composeTestRule.runOnIdle { expansionProgress.floatValue = 0.5f }
+
+    val probe =
+      composeTestRule
+        .onNodeWithTag("full-player-content-probe")
+        .captureToImage()
+        .toPixelMap()
+    val center = probe[probe.width / 2, probe.height / 2]
+
+    assertTrue(
+      "Full-player content faded into the blank sheet at mid-collapse: $center",
+      center.red > 0.98f && center.green > 0.98f && center.blue > 0.98f,
+    )
   }
 }
 
@@ -112,10 +140,7 @@ private fun PlayerTransitionHarness(
       transition.AnimatedContent(
         modifier =
           Modifier.playerTransitionContentLayout(fullHeight = 700.dp),
-        transitionSpec = {
-          fadeIn(animationSpec = tween(500)) togetherWith
-            fadeOut(animationSpec = tween(500))
-        },
+        transitionSpec = { playerContentTransform() },
         contentKey = { expanded -> expanded },
       ) { expanded ->
         if (expanded) {
@@ -144,6 +169,14 @@ private fun PlayerTransitionHarness(
                     animatedVisibilityScope = this@AnimatedContent,
                     key = "player-test-title",
                   ),
+            )
+            Box(
+              modifier =
+                Modifier
+                  .align(Alignment.Center)
+                  .size(64.dp)
+                  .background(Color.White)
+                  .testTag("full-player-content-probe"),
             )
           }
         } else {

@@ -2,11 +2,17 @@
 
 package com.aurelia.app.ui
 
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.BoundsTransform
+import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.wrapContentSize
@@ -34,6 +40,49 @@ internal fun Modifier.playerTransitionContentLayout(fullHeight: Dp): Modifier =
   fillMaxWidth()
     .wrapContentSize(Alignment.TopStart)
     .requiredHeight(fullHeight)
+
+internal fun AnimatedContentTransitionScope<Boolean>.playerContentTransform(): ContentTransform =
+  if (targetState) {
+    fadeIn(
+      animationSpec =
+        keyframes {
+          durationMillis = PLAYER_SHARED_TRANSITION_DURATION_MS
+          0f at 0
+          1f at 100
+          1f at PLAYER_SHARED_TRANSITION_DURATION_MS
+        },
+    ) togetherWith
+      fadeOut(
+        animationSpec =
+          keyframes {
+            durationMillis = PLAYER_SHARED_TRANSITION_DURATION_MS
+            1f at 0
+            1f at 100
+            0f at 180
+            0f at PLAYER_SHARED_TRANSITION_DURATION_MS
+          },
+      )
+  } else {
+    fadeIn(
+      animationSpec =
+        keyframes {
+          durationMillis = PLAYER_SHARED_TRANSITION_DURATION_MS
+          0f at 0
+          0f at 320
+          1f at 410
+          1f at PLAYER_SHARED_TRANSITION_DURATION_MS
+        },
+    ) togetherWith
+      fadeOut(
+        animationSpec =
+          keyframes {
+            durationMillis = PLAYER_SHARED_TRANSITION_DURATION_MS
+            1f at 0
+            1f at 410
+            0f at PLAYER_SHARED_TRANSITION_DURATION_MS
+          },
+      )
+  }
 
 internal fun playerTransitionSeek(
   expansionProgress: Float,
