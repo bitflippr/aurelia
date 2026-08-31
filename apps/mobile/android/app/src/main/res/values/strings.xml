@@ -2,4 +2,15 @@
   <string name="playback_notification_channel_name">Playback</string>
   <string name="playback_notification_title">Aurelia</string>
   <string name="playback_notification_artist">Now playing</string>
+  <string name="android_auto_root">Aurelia</string>
+  <string name="android_auto_recently_played">Recently played</string>
+  <string name="android_auto_albums">Albums</string>
+  <string name="android_auto_artists">Artists</string>
+  <string name="android_auto_playlists">Playlists</string>
+  <string name="android_auto_songs">Songs</string>
+  <string name="android_auto_load_error">Aurelia could not load your music</string>
+  <plurals name="android_auto_song_count">
+    <item quantity="one">%d song</item>
+    <item quantity="other">%d songs</item>
+  </plurals>
 </resources>

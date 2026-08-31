@@ -8,6 +8,18 @@ plugins {
   id("org.jlleitschuh.gradle.ktlint")
 }
 
+fun environmentValue(name: String): String? = providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
+
+val configuredVersionCode = environmentValue("AURELIA_VERSION_CODE")
+val appVersionCode =
+  configuredVersionCode?.toIntOrNull()?.takeIf { it > 0 }
+    ?: if (configuredVersionCode == null) {
+      1
+    } else {
+      throw GradleException("AURELIA_VERSION_CODE must be a positive integer")
+    }
+val appVersionName = environmentValue("AURELIA_VERSION_NAME") ?: "0.1.0"
+
 kotlin {
   jvmToolchain(17)
 }
@@ -20,8 +32,8 @@ android {
     applicationId = "com.aurelia.app"
     minSdk = 34
     targetSdk = 36
-    versionCode = 1
-    versionName = "0.1.0"
+    versionCode = appVersionCode
+    versionName = appVersionName
     vectorDrawables {
       useSupportLibrary = true
     }
@@ -48,6 +60,15 @@ android {
 
   buildTypes {
     debug {
+    }
+    getByName("release") {
+      isMinifyEnabled = true
+      isShrinkResources = true
+      proguardFiles(
+        getDefaultProguardFile("proguard-android-optimize.txt"),
+        "proguard-rules.pro",
+      )
+      signingConfig = signingConfigs.getByName("debug")
     }
     create("fast") {
       initWith(getByName("debug"))

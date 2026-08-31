@@ -3,14 +3,13 @@ package com.aurelia.app.ui
 import uniffi.aurelia_core.Song
 
 /**
- * Featured album data for the hero section
+ * An instant mix seeded from an artist or song the user listens to a lot.
  */
-data class FeaturedAlbum(
-  val id: String,
-  val name: String,
-  val artist: String,
-  val albumArtUrl: String?,
-  val songCount: Int,
+data class HomeMix(
+  val seedId: String,
+  val seedTitle: String,
+  val artworkUrl: String?,
+  val songs: List<Song>,
 )
 
 /**
@@ -19,17 +18,22 @@ data class FeaturedAlbum(
 data class HomeState(
   val isLoading: Boolean = false,
   val error: String? = null,
-  // Featured albums for hero carousel
-  val featuredAlbums: List<FeaturedAlbum> = emptyList(),
-  val currentFeaturedIndex: Int = 0,
-  // Most played songs (sorted by playCount)
-  val mostPlayed: List<Song> = emptyList(),
+  // Dense grid of recent + frequent plays
+  val quickPicks: List<Song> = emptyList(),
   // Recently played songs (sorted by datePlayed)
   val recentlyPlayed: List<Song> = emptyList(),
+  // Albums derived from recently played songs, in recency order
+  val recentAlbums: List<AlbumItem> = emptyList(),
+  // Favorited songs not played for the longest time
+  val forgottenFavorites: List<Song> = emptyList(),
+  // Instant mixes seeded from top artists/songs (loaded lazily)
+  val mixes: List<HomeMix> = emptyList(),
   // Recently added albums (sorted by dateCreated)
   val recentlyAddedAlbums: List<AlbumItem> = emptyList(),
   // Random albums from library
   val randomAlbums: List<AlbumItem> = emptyList(),
+  // Most common genres in the library
+  val topGenres: List<String> = emptyList(),
   // Player state
   val nowPlaying: NowPlayingState? = null,
   val currentSongId: String? = null,

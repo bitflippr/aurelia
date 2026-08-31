@@ -12,6 +12,9 @@
     android:theme="@style/Theme.Aurelia"
     android:supportsRtl="true"
     android:enableOnBackInvokedCallback="true">
+    <meta-data
+      android:name="com.google.android.gms.car.application"
+      android:resource="@xml/automotive_app_desc" />
     <uses-native-library android:name="libvndksupport.so" android:required="false" />
     <uses-native-library android:name="libOpenCL.so" android:required="false" />
     <uses-native-library android:name="libOpenCL-car.so" android:required="false" />
@@ -19,10 +22,11 @@
     <profileable android:shell="true" />
     <service
       android:name=".player.PlaybackService"
-      android:exported="false"
+      android:exported="true"
       android:foregroundServiceType="mediaPlayback">
       <intent-filter>
-        <action android:name="androidx.media3.session.MediaSessionService" />
+        <action android:name="androidx.media3.session.MediaLibraryService" />
+        <action android:name="android.media.browse.MediaBrowserService" />
       </intent-filter>
     </service>
     <activity

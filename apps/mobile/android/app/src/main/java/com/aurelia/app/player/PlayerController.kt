@@ -2,13 +2,10 @@ package com.aurelia.app.player
 
 import android.content.ComponentName
 import android.content.Context
-import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
-import androidx.core.net.toUri
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -33,24 +30,9 @@ class PlayerController(
   private var mediaController: MediaController? = null
   private var playbackEndedCallback: (() -> Unit)? = null
   private val songByMediaId: MutableMap<String, Song> = mutableMapOf()
-  private var lastServerUrl: String = ""
-  private var lastToken: String = ""
-
-  // Offset tracking for non-seekable container seeking.
-  // When we reload a stream with startTimeTicks, position 0 of the new stream
-  // corresponds to this offset in the actual song.
-  private var seekOffsetMs: Long = 0L
 
   companion object {
     private const val TAG = "PlayerController"
-    private const val EXTRA_ALBUM_ID = "album_id"
-    private const val EXTRA_ARTIST_ID = "artist_id"
-    private const val EXTRA_ALBUM_NAME = "album_name"
-
-    private val SEEKABLE_CONTAINERS = setOf("flac", "mp3", "aac", "ogg")
-
-    private fun isContainerSeekable(container: String?): Boolean =
-      container != null && container.lowercase() in SEEKABLE_CONTAINERS
   }
 
   // Connection state tracking
@@ -83,12 +65,6 @@ class PlayerController(
         }
 
         publishSnapshot(controller)
-      }
-
-      override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-        if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) {
-          seekOffsetMs = 0L
-        }
       }
     }
 
@@ -173,10 +149,6 @@ class PlayerController(
   ) {
     songByMediaId.clear()
     songs.forEach { song -> songByMediaId[song.id] = song }
-    lastServerUrl = serverUrl
-    lastToken = token
-    seekOffsetMs = 0L
-
     withController { controller ->
       val mediaItems = songs.map { song -> buildMediaItem(song, serverUrl, token) }
       controller.setMediaItems(mediaItems, startIndex, startPositionMs)
@@ -190,7 +162,7 @@ class PlayerController(
     val songs = mutableListOf<Song>()
     for (i in 0 until controller.mediaItemCount) {
       val mediaItem = controller.getMediaItemAt(i)
-      songByMediaId[mediaItem.mediaId]?.let { songs.add(it) }
+      (songByMediaId[mediaItem.mediaId] ?: AureliaMediaItems.songFrom(mediaItem))?.let { songs.add(it) }
     }
     return songs
   }
@@ -198,7 +170,6 @@ class PlayerController(
   fun getCurrentQueueIndex(): Int = mediaController?.currentMediaItemIndex ?: -1
 
   fun playQueueItem(index: Int) {
-    seekOffsetMs = 0L
     withController { controller ->
       if (index >= 0 && index < controller.mediaItemCount) {
         controller.seekToDefaultPosition(index)
@@ -227,9 +198,6 @@ class PlayerController(
 
   fun play(song: Song, serverUrl: String, token: String) {
     songByMediaId[song.id] = song
-    lastServerUrl = serverUrl
-    lastToken = token
-    seekOffsetMs = 0L
     withController { controller ->
       controller.setMediaItem(buildMediaItem(song, serverUrl, token))
       controller.prepare()
@@ -260,48 +228,18 @@ class PlayerController(
 
   fun seekTo(positionMs: Long) {
     withController { controller ->
-      val mediaId = controller.currentMediaItem?.mediaId
-      val song = mediaId?.let { songByMediaId[it] }
-      val songDurationMs = song?.duration?.let { (it * 1000).toLong() } ?: 0L
-      val controllerDuration = controller.duration
-      val fullDuration = if (songDurationMs > 0L) songDurationMs
-        else if (controllerDuration != C.TIME_UNSET && controllerDuration > 0L) controllerDuration + seekOffsetMs
-        else 0L
-
+      val duration = controller.duration
       val targetPosition =
-        if (fullDuration <= 0L) positionMs.coerceAtLeast(0)
-        else positionMs.coerceIn(0, fullDuration)
-
-      if (song != null && !isContainerSeekable(song.container) && lastServerUrl.isNotBlank()) {
-        // Non-seekable container: reload the stream with startTimeTicks
-        val wasPlaying = controller.isPlaying
-        val currentIndex = controller.currentMediaItemIndex
-        val ticks = targetPosition * 10_000 // ms to ticks (1 tick = 100ns)
-
-        // Rebuild the current item's URL with startTimeTicks
-        val baseUrl = buildMobileStreamUrl(lastServerUrl, lastToken, song.id, song.container)
-        val seekUrl = "$baseUrl&startTimeTicks=$ticks"
-        val newItem = buildMediaItemWithUri(song, seekUrl)
-
-        // Rebuild queue with the updated item
-        val mediaItems = mutableListOf<MediaItem>()
-        for (i in 0 until controller.mediaItemCount) {
-          if (i == currentIndex) mediaItems.add(newItem)
-          else mediaItems.add(controller.getMediaItemAt(i))
+        if (duration == C.TIME_UNSET || duration <= 0L) {
+          positionMs.coerceAtLeast(0L)
+        } else {
+          positionMs.coerceIn(0L, duration)
         }
-
-        seekOffsetMs = targetPosition
-        controller.setMediaItems(mediaItems, currentIndex, 0L)
-        controller.prepare()
-        controller.playWhenReady = wasPlaying
-      } else {
-        controller.seekTo(targetPosition)
-      }
+      controller.seekTo(targetPosition)
     }
   }
 
   fun skipNext() {
-    seekOffsetMs = 0L
     withController { controller ->
       if (controller.hasNextMediaItem()) {
         controller.seekToNextMediaItem()
@@ -310,7 +248,6 @@ class PlayerController(
   }
 
   fun skipPrevious() {
-    seekOffsetMs = 0L
     withController { controller ->
       if (controller.hasPreviousMediaItem()) {
         controller.seekToPreviousMediaItem()
@@ -366,30 +303,7 @@ class PlayerController(
 
   private fun buildMediaItem(song: Song, serverUrl: String, token: String): MediaItem {
     val uri = buildMobileStreamUrl(serverUrl, token, song.id, song.container)
-    return buildMediaItemWithUri(song, uri)
-  }
-
-  private fun buildMediaItemWithUri(song: Song, uri: String): MediaItem {
-    val artist = song.artists?.joinToString(", ") ?: ""
-    val extras = Bundle().apply {
-      song.albumId?.let { putString(EXTRA_ALBUM_ID, it) }
-      song.artistIds?.firstOrNull()?.let { putString(EXTRA_ARTIST_ID, it) }
-      song.album?.let { putString(EXTRA_ALBUM_NAME, it) }
-    }
-    val metadataBuilder =
-      MediaMetadata
-        .Builder()
-        .setTitle(song.name)
-        .setArtist(artist)
-        .setExtras(extras)
-    song.albumArtUrl?.let { metadataBuilder.setArtworkUri(it.toUri()) }
-
-    return MediaItem
-      .Builder()
-      .setMediaId(song.id)
-      .setUri(uri)
-      .setMediaMetadata(metadataBuilder.build())
-      .build()
+    return AureliaMediaItems.playableSong(song, uri)
   }
 
   private fun snapshotFrom(controller: MediaController): PlayerSnapshot {
@@ -414,11 +328,7 @@ class PlayerController(
     val currentItem = controller.currentMediaItem
     val metadata = currentItem?.mediaMetadata ?: controller.mediaMetadata
 
-    // When playing a non-seekable container that was seeked via startTimeTicks reload,
-    // player position is relative to the reload point. Add seekOffsetMs to get real position.
-    val adjustedPosition = controller.currentPosition + seekOffsetMs
-    val songDurationMs = song?.duration?.let { (it * 1000).toLong() } ?: 0L
-    val adjustedDuration = if (seekOffsetMs > 0L && songDurationMs > 0L) songDurationMs else duration
+    val extras = metadata.extras
 
     return PlayerSnapshot(
       title = metadata.title?.toString() ?: "",
@@ -426,21 +336,21 @@ class PlayerController(
       albumArtUrl = metadata.artworkUri?.toString(),
       isPlaying = controller.isPlaying,
       isBuffering = controller.playbackState == Player.STATE_BUFFERING,
-      positionMs = adjustedPosition,
-      durationMs = adjustedDuration,
+      positionMs = controller.currentPosition,
+      durationMs = duration,
       hasPrevious = controller.hasPreviousMediaItem(),
       hasNext = controller.hasNextMediaItem(),
       isShuffled = controller.shuffleModeEnabled,
       repeatMode = repeatMode,
       currentSongId = mediaId,
-      currentAlbumId = song?.albumId,
-      currentArtistId = song?.artistIds?.firstOrNull(),
-      currentAlbumName = song?.album,
+      currentAlbumId = song?.albumId ?: extras?.getString(AureliaMediaItems.EXTRA_ALBUM_ID),
+      currentArtistId = song?.artistIds?.firstOrNull() ?: extras?.getString(AureliaMediaItems.EXTRA_ARTIST_ID),
+      currentAlbumName = song?.album ?: extras?.getString(AureliaMediaItems.EXTRA_ALBUM_NAME),
       playbackSpeed = controller.playbackParameters.speed,
       updateTimeMs = SystemClock.elapsedRealtime(),
-      codec = song?.codec,
-      bitRate = song?.bitRate,
-      sampleRate = song?.sampleRate,
+      codec = song?.codec ?: extras?.getString(AureliaMediaItems.EXTRA_CODEC),
+      bitRate = song?.bitRate ?: extras?.getInt(AureliaMediaItems.EXTRA_BIT_RATE)?.takeIf { it != 0 },
+      sampleRate = song?.sampleRate ?: extras?.getInt(AureliaMediaItems.EXTRA_SAMPLE_RATE)?.takeIf { it != 0 },
     )
   }
 

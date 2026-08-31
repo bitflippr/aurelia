@@ -11,6 +11,8 @@ import com.aurelia.app.utils.buildSongIdCache
 import com.aurelia.app.utils.validateSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,6 +22,7 @@ import uniffi.aurelia_core.AppException
 import uniffi.aurelia_core.Song
 import uniffi.aurelia_core.deriveMobileHomeData
 import uniffi.aurelia_core.fetchSongs
+import uniffi.aurelia_core.getInstantMix
 import uniffi.aurelia_core.loadCachedSongs
 
 class HomeViewModel(
@@ -31,11 +34,11 @@ class HomeViewModel(
 
   // All songs cache for queue building
   private var allSongs: List<Song> = emptyList()
-  private val useSharedHomeDerivation = true
 
   // Cache for song ID lookup
   private var songIdByTitleArtist: Map<Pair<String, String>, String> = emptyMap()
   private var loadJob: Job? = null
+  private var mixesJob: Job? = null
   private var lastLoadedAtMs: Long = 0L
 
   private val nowPlayingMapper = NowPlayingMapper()
@@ -52,10 +55,11 @@ class HomeViewModel(
 
   fun ensureLoaded(force: Boolean = false) {
     if (!force && loadJob?.isActive == true) return
+    val current = mutableState.value
     val hasData =
-      mutableState.value.featuredAlbums.isNotEmpty() ||
-        mutableState.value.mostPlayed.isNotEmpty() ||
-        mutableState.value.recentlyPlayed.isNotEmpty()
+      current.quickPicks.isNotEmpty() ||
+        current.recentlyPlayed.isNotEmpty() ||
+        current.recentlyAddedAlbums.isNotEmpty()
     val isFresh = SystemClock.elapsedRealtime() - lastLoadedAtMs < LOAD_FRESHNESS_MS
     if (!force && hasData && isFresh) return
 
@@ -85,9 +89,12 @@ class HomeViewModel(
       // Fetch fresh data
       try {
         val songs = fetchSongs(session.serverUrl, session.token, session.userId, session.appDataDir ?: "")
-        allSongs = songs
-        songIdByTitleArtist = buildSongIdCache(songs)
-        processHomeData(songs)
+        if (songs != allSongs) {
+          allSongs = songs
+          songIdByTitleArtist = buildSongIdCache(songs)
+          processHomeData(songs)
+          loadMixes(session.serverUrl, session.token, songs)
+        }
         lastLoadedAtMs = SystemClock.elapsedRealtime()
       } catch (error: AppException) {
         if (!AuthInterceptor.handlePotentialAuthError(error.message)) {
@@ -106,15 +113,6 @@ class HomeViewModel(
   }
 
   private fun processHomeData(songs: List<Song>) {
-    if (useSharedHomeDerivation) {
-      processHomeDataWithSharedDerivation(songs)
-      return
-    }
-
-    processHomeDataLegacy(songs)
-  }
-
-  private fun processHomeDataWithSharedDerivation(songs: List<Song>) {
     val derived =
       deriveMobileHomeData(
         songs = songs,
@@ -124,146 +122,133 @@ class HomeViewModel(
         featuredAlbumsLimit = UiConstants.FEATURED_ALBUMS_LIMIT.toLong(),
       )
 
-    mutableState.update {
-      it.copy(
-        isLoading = false,
-        featuredAlbums = derived.featuredAlbums.map(::toFeaturedAlbum),
-        mostPlayed = derived.mostPlayed,
-        recentlyPlayed = derived.recentlyPlayed,
-        recentlyAddedAlbums = derived.recentlyAdded.map(::toAlbumItem),
-        randomAlbums = derived.randomAlbums.map(::toAlbumItem),
-      )
-    }
-  }
+    val mostPlayed = derived.mostPlayed
+    val recentlyPlayed = derived.recentlyPlayed
 
-  private fun processHomeDataLegacy(songs: List<Song>) {
-    // Most played - top 10 by playCount
-    val mostPlayed =
-      songs
-        .filter { (it.playCount ?: 0) > 0 }
-        .sortedByDescending { it.playCount ?: 0 }
-        .take(UiConstants.MOST_PLAYED_LIMIT)
+    val quickPicks =
+      (mostPlayed + recentlyPlayed)
+        .distinctBy { it.id }
+        .take(UiConstants.QUICK_PICKS_LIMIT)
 
-    // Recently played
-    val recentlyPlayed =
-      songs
-        .filter { !it.datePlayed.isNullOrBlank() }
-        .sortedByDescending { it.datePlayed ?: "" }
-        .take(UiConstants.RECENTLY_PLAYED_LIMIT)
-
-    // Group songs by album for album-based sections
-    val albumsMap =
-      songs
+    // Albums from recently played songs, in recency order
+    val recentAlbums =
+      recentlyPlayed
         .filter { !it.albumId.isNullOrBlank() }
-        .groupBy { it.albumId.orEmpty() }
-
-    // Recently added albums - by dateCreated of first song
-    val recentlyAddedAlbums =
-      albumsMap
-        .map { (albumId, albumSongs) ->
-          val firstSong = albumSongs.maxByOrNull { it.dateCreated ?: "" } ?: albumSongs.first()
-          AlbumItemWithDate(
-            album =
-              AlbumItem(
-                id = albumId,
-                name = firstSong.album ?: "Unknown Album",
-                artist = firstSong.artists?.firstOrNull() ?: "Unknown Artist",
-                albumArtUrl = firstSong.albumArtUrl,
-                songCount = albumSongs.size,
-              ),
-            dateCreated = firstSong.dateCreated ?: "",
-          )
-        }.sortedByDescending { it.dateCreated }
-        .take(UiConstants.ALBUM_SECTION_LIMIT)
-        .map { it.album }
-
-    // Random albums for "From Your Library"
-    val randomAlbums =
-      albumsMap
-        .map { (albumId, albumSongs) ->
-          val firstSong = albumSongs.first()
+        .distinctBy { it.albumId }
+        .take(UiConstants.RECENT_ALBUMS_LIMIT)
+        .map { song ->
           AlbumItem(
-            id = albumId,
-            name = firstSong.album ?: "Unknown Album",
-            artist = firstSong.artists?.firstOrNull() ?: "Unknown Artist",
-            albumArtUrl = firstSong.albumArtUrl,
-            songCount = albumSongs.size,
+            id = song.albumId.orEmpty(),
+            name = song.album ?: "Unknown Album",
+            artist = song.artists?.firstOrNull() ?: "Unknown Artist",
+            albumArtUrl = song.albumArtUrl,
+            songCount = 0,
           )
-        }.shuffled()
-        .take(UiConstants.ALBUM_SECTION_LIMIT)
+        }
 
-    // Featured albums - random selection with album art
-    val featuredAlbums =
-      albumsMap
-        .filter { (_, albumSongs) -> albumSongs.any { !it.albumArtUrl.isNullOrBlank() } }
-        .map { (albumId, albumSongs) ->
-          val firstSong = albumSongs.first()
-          FeaturedAlbum(
-            id = albumId,
-            name = firstSong.album ?: "Unknown Album",
-            artist = firstSong.artists?.joinToString(", ") ?: "Unknown Artist",
-            albumArtUrl = firstSong.albumArtUrl,
-            songCount = albumSongs.size,
-          )
-        }.shuffled()
-        .take(UiConstants.FEATURED_ALBUMS_LIMIT)
+    // Favorites not played for the longest time (never played first)
+    val forgottenFavorites =
+      songs
+        .filter { it.isFavorite == true }
+        .sortedBy { it.datePlayed ?: "" }
+        .take(UiConstants.FORGOTTEN_FAVORITES_LIMIT)
+
+    // Keep the current random order if the selection itself hasn't changed
+    val newRandomAlbums = derived.randomAlbums.map(::toAlbumItem)
+    val currentRandomAlbums = mutableState.value.randomAlbums
+    val randomAlbums =
+      if (currentRandomAlbums.map { it.id }.toSet() == newRandomAlbums.map { it.id }.toSet()) {
+        currentRandomAlbums
+      } else {
+        newRandomAlbums
+      }
+
+    val topGenres =
+      songs
+        .flatMap { it.genres.orEmpty() }
+        .groupingBy { it }
+        .eachCount()
+        .entries
+        .sortedByDescending { it.value }
+        .map { it.key }
+        .take(UiConstants.TOP_GENRES_LIMIT)
 
     mutableState.update {
       it.copy(
         isLoading = false,
-        featuredAlbums = featuredAlbums,
-        mostPlayed = mostPlayed,
+        quickPicks = quickPicks,
         recentlyPlayed = recentlyPlayed,
-        recentlyAddedAlbums = recentlyAddedAlbums,
+        recentAlbums = recentAlbums,
+        forgottenFavorites = forgottenFavorites,
+        recentlyAddedAlbums = derived.recentlyAdded.map(::toAlbumItem),
         randomAlbums = randomAlbums,
+        topGenres = topGenres,
       )
     }
   }
 
-  private fun toAlbumItem(album: uniffi.aurelia_core.Album): AlbumItem =
-    AlbumItem(
-      id = album.id ?: "",
-      name = album.name,
-      artist = album.artist,
-      albumArtUrl = album.albumArtUrl,
-      songCount = album.songCount.toInt(),
-    )
+  /**
+   * Build instant mixes from the user's top artists and top song.
+   * Runs lazily after fresh data arrives; failures simply omit that mix.
+   */
+  private fun loadMixes(serverUrl: String, token: String, songs: List<Song>) {
+    if (mixesJob?.isActive == true) return
+    if (mutableState.value.mixes.isNotEmpty()) return
+    mixesJob = viewModelScope.launch(Dispatchers.IO) {
+      val played = songs.filter { (it.playCount ?: 0) > 0 }
+      if (played.isEmpty()) return@launch
 
-  private fun toFeaturedAlbum(album: uniffi.aurelia_core.Album): FeaturedAlbum =
-    FeaturedAlbum(
-      id = album.id ?: "",
-      name = album.name,
-      artist = album.artist,
-      albumArtUrl = album.albumArtUrl,
-      songCount = album.songCount.toInt(),
-    )
+      // Top artists by cumulative play count
+      val topArtists =
+        played
+          .flatMap { song ->
+            val plays = song.playCount ?: 0
+            song.artistIds.orEmpty().zip(song.artists.orEmpty()).map { (id, name) ->
+              Triple(id, name, plays)
+            }
+          }.groupBy { it.first }
+          .map { (_, entries) -> entries.first().first to entries.sumOf { it.third } }
+          .sortedByDescending { it.second }
+          .map { it.first }
 
-  fun nextFeaturedAlbum() {
-    val current = mutableState.value
-    if (current.featuredAlbums.isNotEmpty()) {
-      val nextIndex = (current.currentFeaturedIndex + 1) % current.featuredAlbums.size
-      mutableState.update { it.copy(currentFeaturedIndex = nextIndex) }
+      val topSongId = played.maxByOrNull { it.playCount ?: 0 }?.id
+
+      val seedIds = (topArtists + listOfNotNull(topSongId)).distinct().take(UiConstants.MIX_SEEDS_LIMIT)
+
+      // Build all mixes in parallel, then swap them in atomically so the row doesn't jump
+      val mixes =
+        seedIds
+          .map { seedId ->
+            async {
+              try {
+                val mixSongs = getInstantMix(serverUrl, token, seedId).take(UiConstants.MIX_SIZE_LIMIT)
+                if (mixSongs.isEmpty()) return@async null
+                HomeMix(
+                  seedId = seedId,
+                  seedTitle = mixSeedTitle(seedId, songs, mixSongs),
+                  artworkUrl = mixSongs.firstOrNull { !it.albumArtUrl.isNullOrBlank() }?.albumArtUrl,
+                  songs = mixSongs,
+                )
+              } catch (e: Exception) {
+                Log.w("HomeViewModel", "Failed to load instant mix for $seedId", e)
+                null
+              }
+            }
+          }.awaitAll()
+          .filterNotNull()
+
+      if (mixes.isNotEmpty()) {
+        mutableState.update { it.copy(mixes = mixes) }
+      }
     }
   }
 
-  fun previousFeaturedAlbum() {
-    val current = mutableState.value
-    if (current.featuredAlbums.isNotEmpty()) {
-      val prevIndex =
-        if (current.currentFeaturedIndex > 0) {
-          current.currentFeaturedIndex - 1
-        } else {
-          current.featuredAlbums.size - 1
-        }
-      mutableState.update { it.copy(currentFeaturedIndex = prevIndex) }
-    }
-  }
-
-  fun setFeaturedIndex(index: Int) {
-    val current = mutableState.value
-    if (index in current.featuredAlbums.indices) {
-      mutableState.update { it.copy(currentFeaturedIndex = index) }
-    }
+  private fun mixSeedTitle(seedId: String, songs: List<Song>, mixSongs: List<Song>): String {
+    val seedSong = songs.firstOrNull { it.id == seedId }
+    if (seedSong != null) return seedSong.name
+    val artistSong =
+      (mixSongs + songs).firstOrNull { song -> song.artistIds.orEmpty().contains(seedId) }
+    return artistSong?.artists.orEmpty().firstOrNull() ?: "Your mix"
   }
 
   /**
@@ -319,6 +304,39 @@ class HomeViewModel(
     playerController.setQueue(albumSongs, serverUrl, token)
   }
 
+  fun shuffleAll() {
+    if (allSongs.isEmpty()) return
+    playShuffled(allSongs)
+  }
+
+  fun playSurprise() {
+    if (allSongs.isEmpty()) return
+    val favorites = allSongs.filter { it.isFavorite == true }
+    playShuffled(if (favorites.isNotEmpty()) favorites else allSongs)
+  }
+
+  fun playGenreMix(genre: String) {
+    val genreSongs = allSongs.filter { song -> song.genres.orEmpty().contains(genre) }
+    if (genreSongs.isEmpty()) return
+    playShuffled(genreSongs)
+  }
+
+  fun playMix(mix: HomeMix) {
+    val serverUrl = sessionStore.getServerUrl() ?: return
+    val token = sessionStore.getToken() ?: return
+    if (mix.songs.isEmpty()) return
+    mutableState.update { it.copy(currentSongId = mix.songs.first().id) }
+    playerController.setQueue(mix.songs, serverUrl, token)
+  }
+
+  private fun playShuffled(songs: List<Song>) {
+    val serverUrl = sessionStore.getServerUrl() ?: return
+    val token = sessionStore.getToken() ?: return
+    val shuffled = songs.shuffled()
+    mutableState.update { it.copy(currentSongId = shuffled.first().id) }
+    playerController.setQueue(shuffled, serverUrl, token)
+  }
+
   fun togglePlayPause() {
     val nowPlaying = mutableState.value.nowPlaying ?: return
     if (nowPlaying.isPlaying) {
@@ -335,11 +353,15 @@ class HomeViewModel(
   fun skipNext() {
     playerController.skipNext()
   }
-}
 
-private data class AlbumItemWithDate(
-  val album: AlbumItem,
-  val dateCreated: String,
-)
+  private fun toAlbumItem(album: uniffi.aurelia_core.Album): AlbumItem =
+    AlbumItem(
+      id = album.id ?: "",
+      name = album.name,
+      artist = album.artist,
+      albumArtUrl = album.albumArtUrl,
+      songCount = album.songCount.toInt(),
+    )
+}
 
 private const val LOAD_FRESHNESS_MS = 60_000L

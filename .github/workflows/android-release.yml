@@ -1,0 +1,166 @@
+name: Android release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/mobile/android/**'
+      - 'crates/aurelia-core/**'
+      - 'crates/aurelia-lyrics/**'
+      - 'crates/uniffi-bindgen/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/android-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and verify signed APK
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      version_name: ${{ steps.version.outputs.version_name }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      release_apk: ${{ steps.version.outputs.release_apk }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK components
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "ndk;29.0.14206865"
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          echo "ANDROID_NDK_HOME=$sdk_root/ndk/29.0.14206865" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ndk
+
+      - name: Set release version
+        id: version
+        run: |
+          version_code="$GITHUB_RUN_NUMBER"
+          version_name="0.1.$GITHUB_RUN_NUMBER"
+          {
+            echo "AURELIA_VERSION_CODE=$version_code"
+            echo "AURELIA_VERSION_NAME=$version_name"
+            echo "ANDROID_RELEASE_TAG=android-v$version_name"
+            echo "ANDROID_RELEASE_APK=aurelia-$version_name.apk"
+          } >> "$GITHUB_ENV"
+          {
+            echo "version_name=$version_name"
+            echo "release_tag=android-v$version_name"
+            echo "release_apk=aurelia-$version_name.apk"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Lint, test, and build release APK
+        working-directory: apps/mobile/android
+        run: ./gradlew ktlintCheck testDebugUnitTest assembleRelease
+
+      - name: Stage and verify release APK
+        run: |
+          source_apk="apps/mobile/android/app/build/outputs/apk/release/app-release.apk"
+          if [ ! -f "$source_apk" ]; then
+            echo "::error title=Missing release APK::$source_apk was not produced"
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp "$source_apk" "dist/$ANDROID_RELEASE_APK"
+          (
+            cd dist
+            sha256sum "$ANDROID_RELEASE_APK" > "$ANDROID_RELEASE_APK.sha256"
+          )
+
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          "$sdk_root/build-tools/36.0.0/apksigner" verify \
+            --verbose \
+            --print-certs \
+            "dist/$ANDROID_RELEASE_APK"
+          package_info=$("$sdk_root/build-tools/36.0.0/aapt2" dump badging \
+            "dist/$ANDROID_RELEASE_APK" | head -n 1)
+          echo "$package_info"
+          if [[ "$package_info" != *"name='com.aurelia.app'"* ||
+                "$package_info" != *"versionCode='$AURELIA_VERSION_CODE'"* ||
+                "$package_info" != *"versionName='$AURELIA_VERSION_NAME'"* ]]; then
+            echo "::error title=Unexpected APK metadata::Package name or version does not match the release"
+            exit 1
+          fi
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: aurelia-android-release
+          path: |
+            dist/${{ env.ANDROID_RELEASE_APK }}
+            dist/${{ env.ANDROID_RELEASE_APK }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      AURELIA_VERSION_NAME: ${{ needs.build.outputs.version_name }}
+      ANDROID_RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+      ANDROID_RELEASE_APK: ${{ needs.build.outputs.release_apk }}
+
+    steps:
+      - name: Download verified release APK
+        uses: actions/download-artifact@v8
+        with:
+          name: aurelia-android-release
+          path: dist
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$ANDROID_RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $ANDROID_RELEASE_TAG already exists; nothing to publish."
+            exit 0
+          fi
+
+          gh release create "$ANDROID_RELEASE_TAG" \
+            "dist/$ANDROID_RELEASE_APK#Aurelia Android APK" \
+            "dist/$ANDROID_RELEASE_APK.sha256#SHA-256 checksum" \
+            --target "$GITHUB_SHA" \
+            --title "Aurelia Android $AURELIA_VERSION_NAME" \
+            --notes "Automated signed Android build for Obtainium." \
+            --generate-notes \
+            --latest

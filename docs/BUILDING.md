@@ -31,7 +31,17 @@ Gradle builds `aurelia-core` for the Android ABIs, regenerates the Kotlin UniFFI
 ./gradlew assembleRelease
 ```
 
-The debug APK is written under `apps/mobile/android/app/build/outputs/apk/debug/`.
+The debug APK is written under `apps/mobile/android/app/build/outputs/apk/debug/`. `AURELIA_VERSION_CODE` and `AURELIA_VERSION_NAME` can override the default Android version for automated builds.
+
+### Automated Android releases
+
+`.github/workflows/android-release.yml` creates a debug-signed, optimized APK and GitHub Release whenever Android or its shared Rust dependencies change on `main`. It also supports manual runs from the Actions tab. Each release has a monotonically increasing version code, an `android-v0.1.<run>` tag, one universal APK, and a SHA-256 checksum suitable for Obtainium. No GitHub secrets are required.
+
+This project intentionally uses automatic debug signing for release artifacts because its Obtainium deployment targets a CorePatch device. These APKs are not suitable for normal distribution: stock Android requires updates to retain the same signing key.
+
+After the first workflow release succeeds, add `https://github.com/skulldogged/aurelia` to Obtainium using its GitHub source. The single `aurelia-<version>.apk` asset in the latest release is the installable update.
+
+On an unpatched device, use a private, persistent release keystore instead.
 
 ## Desktop prototype
 
