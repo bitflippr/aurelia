@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
+
 package com.aurelia.app.ui
 
 import android.graphics.Bitmap
@@ -5,9 +7,11 @@ import android.graphics.drawable.BitmapDrawable
 import android.os.SystemClock
 import android.content.pm.ApplicationInfo
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -392,6 +396,9 @@ fun PlayerScreen(
   modifier: Modifier = Modifier,
   isEmbedded: Boolean = false,
   isVisible: Boolean = true,
+  sharedTransitionScope: SharedTransitionScope? = null,
+  animatedVisibilityScope: AnimatedVisibilityScope? = null,
+  sharedContentKey: String? = null,
 ) {
   val context = LocalContext.current
   val isDebuggable = remember(context) {
@@ -593,6 +600,11 @@ fun PlayerScreen(
           Surface(
             modifier =
               Modifier
+                .playerSharedElement(
+                  sharedTransitionScope = sharedTransitionScope,
+                  animatedVisibilityScope = animatedVisibilityScope,
+                  key = playerSharedKey(sharedContentKey, "artwork"),
+                )
                 .fillMaxSize()
                 .clip(SquircleShape)
                 .clickable(
@@ -687,6 +699,12 @@ fun PlayerScreen(
           color = Color.White.copy(alpha = 0.95f),
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
+          modifier =
+            Modifier.playerSharedBounds(
+              sharedTransitionScope = sharedTransitionScope,
+              animatedVisibilityScope = animatedVisibilityScope,
+              key = playerSharedKey(sharedContentKey, "title"),
+            ),
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
@@ -696,14 +714,20 @@ fun PlayerScreen(
           maxLines = 1,
           overflow = TextOverflow.Ellipsis,
           modifier =
-            Modifier.clickable(
-              enabled = !state.currentArtistId.isNullOrBlank(),
-              onClick = {
-                state.currentArtistId?.let { id ->
-                  onNavigateToArtist(Screen.ArtistDetail(id, state.artist))
-                }
-              },
-            ),
+            Modifier
+              .playerSharedBounds(
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                key = playerSharedKey(sharedContentKey, "artist"),
+              )
+              .clickable(
+                enabled = !state.currentArtistId.isNullOrBlank(),
+                onClick = {
+                  state.currentArtistId?.let { id ->
+                    onNavigateToArtist(Screen.ArtistDetail(id, state.artist))
+                  }
+                },
+              ),
         )
         state.formatInfo?.let { info ->
           Spacer(modifier = Modifier.height(4.dp))
@@ -743,6 +767,24 @@ fun PlayerScreen(
         onNext = { viewModel.skipNext() },
         height = 80.dp,
         primaryColor = primaryColor,
+        previousModifier =
+          Modifier.playerSharedBounds(
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
+            key = playerSharedKey(sharedContentKey, "previous"),
+          ),
+        playPauseModifier =
+          Modifier.playerSharedBounds(
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
+            key = playerSharedKey(sharedContentKey, "play-pause"),
+          ),
+        nextModifier =
+          Modifier.playerSharedBounds(
+            sharedTransitionScope = sharedTransitionScope,
+            animatedVisibilityScope = animatedVisibilityScope,
+            key = playerSharedKey(sharedContentKey, "next"),
+          ),
       )
 
       Spacer(modifier = Modifier.height(16.dp))
@@ -952,6 +994,9 @@ private fun AnimatedPlaybackControls(
   height: Dp,
   primaryColor: Color,
   modifier: Modifier = Modifier,
+  previousModifier: Modifier = Modifier,
+  playPauseModifier: Modifier = Modifier,
+  nextModifier: Modifier = Modifier,
 ) {
   var lastClicked by remember { mutableStateOf<ControlButton?>(null) }
   val baseWeight = 1f
@@ -991,7 +1036,7 @@ private fun AnimatedPlaybackControls(
     val prevIconAlpha = if (hasPrevious) 1f else 0.4f
     Box(
       modifier =
-        Modifier
+        previousModifier
           .weight(prevWeight)
           .fillMaxHeight()
           .clip(CircleShape)
@@ -1035,7 +1080,7 @@ private fun AnimatedPlaybackControls(
     )
     Box(
       modifier =
-        Modifier
+        playPauseModifier
           .weight(playWeight)
           .fillMaxHeight()
           .clip(RoundedCornerShape(playCorner))
@@ -1083,7 +1128,7 @@ private fun AnimatedPlaybackControls(
     val nextIconAlpha = if (hasNext) 1f else 0.4f
     Box(
       modifier =
-        Modifier
+        nextModifier
           .weight(nextWeight)
           .fillMaxHeight()
           .clip(CircleShape)
@@ -1813,4 +1858,3 @@ private fun FullscreenVisualizer(
   }
   VisualizerFrameMetrics(tag = "FullscreenVisualizer", enabled = shouldShowVisualizer)
 }
-

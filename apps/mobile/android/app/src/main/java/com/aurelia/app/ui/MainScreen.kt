@@ -1,13 +1,20 @@
 package com.aurelia.app.ui
 
 import androidx.activity.compose.PredictiveBackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -30,8 +37,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -61,14 +70,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -80,7 +86,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.util.lerp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination
@@ -197,21 +202,26 @@ fun MainScreen(
       } else {
         1f
       }
-    val playerScale = 1f
-    val miniPlayerAlpha = (1f - dragProgress * 2f).coerceIn(0f, 1f)
-    val fullPlayerAlpha = ((dragProgress - 0.15f).coerceIn(0f, 0.85f) / 0.85f)
     val sheetTopCornerRadius = lerp(32.dp, 0.dp, dragProgress)
     val sheetBottomCornerRadius = lerp(12.dp, 0.dp, dragProgress)
     val sheetHorizontalPadding = lerp(12.dp, 0.dp, dragProgress)
     val sheetHeightPx = miniPlayerHeightPx + (screenHeightPx - miniPlayerHeightPx) * dragProgress
     val sheetHeightDp = with(density) { sheetHeightPx.toDp() }
-    var shouldComposeFullPlayer by remember { mutableStateOf(false) }
     val fullPlayerVisible = dragProgress >= 0.55f
+    val playerTransitionState = remember { SeekableTransitionState(false) }
+    val playerTransition = rememberTransition(playerTransitionState, label = "mini-to-full-player")
 
-    LaunchedEffect(dragProgress, playerDragOffset.isRunning) {
+    LaunchedEffect(dragProgress) {
       when {
-        playerDragOffset.isRunning || dragProgress > 0.06f -> shouldComposeFullPlayer = true
-        dragProgress < 0.015f -> shouldComposeFullPlayer = false
+        dragProgress <= 0f -> playerTransitionState.snapTo(false)
+        dragProgress >= 1f -> playerTransitionState.snapTo(true)
+        else -> {
+          val seek = playerTransitionSeek(dragProgress, playerTransitionState.currentState)
+          playerTransitionState.seekTo(
+            fraction = seek.fraction,
+            targetState = seek.targetExpanded,
+          )
+        }
       }
     }
 
@@ -473,8 +483,6 @@ fun MainScreen(
             .padding(horizontal = sheetHorizontalPadding)
             .height(sheetHeightDp)
             .graphicsLayer {
-              scaleX = playerScale
-              scaleY = playerScale
               clip = true
               shape =
                 RoundedCornerShape(
@@ -483,7 +491,6 @@ fun MainScreen(
                   bottomStart = sheetBottomCornerRadius,
                   bottomEnd = sheetBottomCornerRadius,
                 )
-              transformOrigin = TransformOrigin(0.5f, 1f)
             }
             .background(
               color = playerSurfaceColor,
@@ -497,81 +504,92 @@ fun MainScreen(
             )
             .zIndex(1f),
       ) {
-        libraryState.nowPlaying?.let { nowPlaying ->
-           MiniPlayerBar(
-             title = nowPlaying.title,
-             artist = nowPlaying.artist,
-             albumArtUrl = nowPlaying.albumArtUrl,
-             isPlaying = nowPlaying.isPlaying,
-             isBuffering = nowPlaying.isBuffering,
-             hasPrevious = nowPlaying.hasPrevious,
-             hasNext = nowPlaying.hasNext,
-             onPrevious = { libraryViewModel.skipPrevious() },
-             onPlayPause = { libraryViewModel.togglePlayPause() },
-             onNext = { libraryViewModel.skipNext() },
-             onClick = { openPlayerAnimated() },
-             onDrag = { delta -> onPlayerDrag(delta) },
-             onDragEnd = { velocity -> onPlayerDragEnd(velocity) },
-             modifier =
-               Modifier
-                 .align(Alignment.BottomCenter)
-                 .graphicsLayer { alpha = miniPlayerAlpha }
-                 .zIndex(if (dragProgress < 0.5f) 1f else 0f),
-             albumId = nowPlaying.albumId,
-             artistId = nowPlaying.artistId,
-             albumName = nowPlaying.albumName,
-             onNavigateToAlbum = { navController.navigate(it) },
-             onNavigateToArtist = { navController.navigate(it) },
-             sessionStore = sessionStore,
-           )
-         }
+        val nowPlaying = libraryState.nowPlaying ?: return@Box
+        val sharedContentKey =
+          libraryState.currentSongId ?: "${nowPlaying.title}|${nowPlaying.artist}"
 
-        Box(
-          modifier =
-            Modifier
-              .fillMaxSize()
-              .pointerInput(Unit) {
-                var totalDrag = 0f
-                detectVerticalDragGestures(
-                  onVerticalDrag = { _, dragAmount ->
-                    totalDrag += dragAmount
-                    onPlayerDrag(dragAmount)
+        SharedTransitionLayout {
+          playerTransition.AnimatedContent(
+            modifier =
+              Modifier
+                .fillMaxWidth()
+                .requiredHeight(with(density) { screenHeightPx.toDp() })
+                .wrapContentSize(Alignment.TopStart),
+            transitionSpec = {
+              fadeIn(animationSpec = tween(500)) togetherWith
+                fadeOut(animationSpec = tween(500))
+            },
+            contentKey = { expanded -> expanded },
+          ) { expanded ->
+            if (expanded) {
+              Box(
+                modifier =
+                  Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                      var totalDrag = 0f
+                      detectVerticalDragGestures(
+                        onVerticalDrag = { _, dragAmount ->
+                          totalDrag += dragAmount
+                          onPlayerDrag(dragAmount)
+                        },
+                        onDragEnd = {
+                          val velocity = if (totalDrag != 0f) totalDrag * 12f else 0f
+                          onPlayerDragEnd(velocity)
+                          totalDrag = 0f
+                        },
+                      )
+                    },
+              ) {
+                PlayerScreen(
+                  playerController = playerController,
+                  sessionStore = sessionStore,
+                  onBack = { closePlayer() },
+                  modifier = Modifier.fillMaxSize(),
+                  isVisible = fullPlayerVisible,
+                  onNavigateToAlbum = {
+                    closePlayer()
+                    navController.navigate(it)
                   },
-                  onDragEnd = {
-                    val velocity = if (totalDrag != 0f) totalDrag * 12f else 0f
-                    onPlayerDragEnd(velocity)
-                    totalDrag = 0f
+                  onNavigateToArtist = {
+                    closePlayer()
+                    navController.navigate(it)
                   },
+                  sharedTransitionScope = this@SharedTransitionLayout,
+                  animatedVisibilityScope = this@AnimatedContent,
+                  sharedContentKey = sharedContentKey,
                 )
               }
-              .graphicsLayer {
-                alpha = fullPlayerAlpha
-                scaleX = lerp(0.92f, 1f, dragProgress)
-                scaleY = lerp(0.92f, 1f, dragProgress)
-                transformOrigin = TransformOrigin(0.5f, 1f)
-              }
-	              .zIndex(if (dragProgress >= 0.5f) 1f else 0f),
-	        ) {
-            if (shouldComposeFullPlayer) {
-	            PlayerScreen(
-	              playerController = playerController,
-	              sessionStore = sessionStore,
-	              onBack = { closePlayer() },
-	              modifier = Modifier.fillMaxSize(),
-                isVisible = fullPlayerVisible,
-	              onNavigateToAlbum = {
-	                closePlayer()
-	                navController.navigate(it)
-	              },
-	              onNavigateToArtist = {
-	                closePlayer()
-	                navController.navigate(it)
-	              },
-	            )
+            } else {
+              MiniPlayerBar(
+                title = nowPlaying.title,
+                artist = nowPlaying.artist,
+                albumArtUrl = nowPlaying.albumArtUrl,
+                isPlaying = nowPlaying.isPlaying,
+                isBuffering = nowPlaying.isBuffering,
+                hasPrevious = nowPlaying.hasPrevious,
+                hasNext = nowPlaying.hasNext,
+                onPrevious = { libraryViewModel.skipPrevious() },
+                onPlayPause = { libraryViewModel.togglePlayPause() },
+                onNext = { libraryViewModel.skipNext() },
+                onClick = { openPlayerAnimated() },
+                onDrag = { delta -> onPlayerDrag(delta) },
+                onDragEnd = { velocity -> onPlayerDragEnd(velocity) },
+                albumId = nowPlaying.albumId,
+                artistId = nowPlaying.artistId,
+                albumName = nowPlaying.albumName,
+                onNavigateToAlbum = { navController.navigate(it) },
+                onNavigateToArtist = { navController.navigate(it) },
+                sessionStore = sessionStore,
+                sharedTransitionScope = this@SharedTransitionLayout,
+                animatedVisibilityScope = this@AnimatedContent,
+                sharedContentKey = sharedContentKey,
+              )
             }
-	        }
-	      }
-	    }
+          }
+        }
+      }
+    }
   }
 }
 
@@ -727,6 +745,9 @@ fun MiniPlayerBar(
   onNavigateToAlbum: ((Screen.AlbumDetail) -> Unit)? = null,
   onNavigateToArtist: ((Screen.ArtistDetail) -> Unit)? = null,
   sessionStore: SessionStore? = null,
+  sharedTransitionScope: SharedTransitionScope? = null,
+  animatedVisibilityScope: AnimatedVisibilityScope? = null,
+  sharedContentKey: String? = null,
 ) {
   val colors = MaterialTheme.colorScheme
 
@@ -810,6 +831,11 @@ fun MiniPlayerBar(
           contentColor = colors.onPrimaryContainer,
           modifier =
             Modifier
+              .playerSharedElement(
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                key = playerSharedKey(sharedContentKey, "artwork"),
+              )
               .size(44.dp)
               .clickable(
                 enabled = !albumId.isNullOrBlank(),
@@ -838,6 +864,12 @@ fun MiniPlayerBar(
             color = colors.onPrimaryContainer,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier =
+              Modifier.playerSharedBounds(
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                key = playerSharedKey(sharedContentKey, "title"),
+              ),
           )
           Text(
             text = artist,
@@ -849,14 +881,20 @@ fun MiniPlayerBar(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier =
-              Modifier.clickable(
-                enabled = !artistId.isNullOrBlank(),
-                onClick = {
-                  artistId?.let { id ->
-                    onNavigateToArtist?.invoke(Screen.ArtistDetail(id, artist))
-                  }
-                },
-              ),
+              Modifier
+                .playerSharedBounds(
+                  sharedTransitionScope = sharedTransitionScope,
+                  animatedVisibilityScope = animatedVisibilityScope,
+                  key = playerSharedKey(sharedContentKey, "artist"),
+                )
+                .clickable(
+                  enabled = !artistId.isNullOrBlank(),
+                  onClick = {
+                    artistId?.let { id ->
+                      onNavigateToArtist?.invoke(Screen.ArtistDetail(id, artist))
+                    }
+                  },
+                ),
           )
         }
       }
@@ -866,6 +904,11 @@ fun MiniPlayerBar(
       Box(
         modifier =
           Modifier
+            .playerSharedBounds(
+              sharedTransitionScope = sharedTransitionScope,
+              animatedVisibilityScope = animatedVisibilityScope,
+              key = playerSharedKey(sharedContentKey, "previous"),
+            )
             .size(36.dp)
             .clip(CircleShape)
             .background(colors.primary.copy(alpha = if (hasPrevious) 0.2f else 0.08f))
@@ -895,6 +938,11 @@ fun MiniPlayerBar(
       Box(
         modifier =
           Modifier
+            .playerSharedBounds(
+              sharedTransitionScope = sharedTransitionScope,
+              animatedVisibilityScope = animatedVisibilityScope,
+              key = playerSharedKey(sharedContentKey, "play-pause"),
+            )
             .size(36.dp)
             .clip(CircleShape)
             .background(colors.primary)
@@ -931,6 +979,11 @@ fun MiniPlayerBar(
       Box(
         modifier =
           Modifier
+            .playerSharedBounds(
+              sharedTransitionScope = sharedTransitionScope,
+              animatedVisibilityScope = animatedVisibilityScope,
+              key = playerSharedKey(sharedContentKey, "next"),
+            )
             .size(36.dp)
             .clip(CircleShape)
             .background(colors.primary.copy(alpha = if (hasNext) 0.2f else 0.08f))
