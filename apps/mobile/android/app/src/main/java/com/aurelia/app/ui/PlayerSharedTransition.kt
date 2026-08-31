@@ -7,8 +7,13 @@ import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 
 private const val PLAYER_SHARED_TRANSITION_DURATION_MS = 500
 
@@ -24,6 +29,11 @@ internal data class PlayerTransitionSeek(
   val fraction: Float,
   val targetExpanded: Boolean,
 )
+
+internal fun Modifier.playerTransitionContentLayout(fullHeight: Dp): Modifier =
+  fillMaxWidth()
+    .wrapContentSize(Alignment.TopStart)
+    .requiredHeight(fullHeight)
 
 internal fun playerTransitionSeek(
   expansionProgress: Float,

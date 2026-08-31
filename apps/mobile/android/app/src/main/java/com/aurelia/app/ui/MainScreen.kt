@@ -37,10 +37,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -511,10 +509,9 @@ fun MainScreen(
         SharedTransitionLayout {
           playerTransition.AnimatedContent(
             modifier =
-              Modifier
-                .fillMaxWidth()
-                .requiredHeight(with(density) { screenHeightPx.toDp() })
-                .wrapContentSize(Alignment.TopStart),
+              Modifier.playerTransitionContentLayout(
+                fullHeight = with(density) { screenHeightPx.toDp() },
+              ),
             transitionSpec = {
               fadeIn(animationSpec = tween(500)) togetherWith
                 fadeOut(animationSpec = tween(500))
