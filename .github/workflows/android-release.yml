@@ -151,7 +151,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$ANDROID_RELEASE_TAG" >/dev/null 2>&1; then
+          if gh release view "$ANDROID_RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $ANDROID_RELEASE_TAG already exists; nothing to publish."
             exit 0
           fi
@@ -159,6 +160,7 @@ jobs:
           gh release create "$ANDROID_RELEASE_TAG" \
             "dist/$ANDROID_RELEASE_APK#Aurelia Android APK" \
             "dist/$ANDROID_RELEASE_APK.sha256#SHA-256 checksum" \
+            --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "Aurelia Android $AURELIA_VERSION_NAME" \
             --notes "Automated signed Android build for Obtainium." \
