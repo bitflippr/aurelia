@@ -554,30 +554,32 @@ fun MainScreen(
                 )
               }
             } else {
-              MiniPlayerBar(
-                title = nowPlaying.title,
-                artist = nowPlaying.artist,
-                albumArtUrl = nowPlaying.albumArtUrl,
-                isPlaying = nowPlaying.isPlaying,
-                isBuffering = nowPlaying.isBuffering,
-                hasPrevious = nowPlaying.hasPrevious,
-                hasNext = nowPlaying.hasNext,
-                onPrevious = { libraryViewModel.skipPrevious() },
-                onPlayPause = { libraryViewModel.togglePlayPause() },
-                onNext = { libraryViewModel.skipNext() },
-                onClick = { openPlayerAnimated() },
-                onDrag = { delta -> onPlayerDrag(delta) },
-                onDragEnd = { velocity -> onPlayerDragEnd(velocity) },
-                albumId = nowPlaying.albumId,
-                artistId = nowPlaying.artistId,
-                albumName = nowPlaying.albumName,
-                onNavigateToAlbum = { navController.navigate(it) },
-                onNavigateToArtist = { navController.navigate(it) },
-                sessionStore = sessionStore,
-                sharedTransitionScope = this@SharedTransitionLayout,
-                animatedVisibilityScope = this@AnimatedContent,
-                sharedContentKey = sharedContentKey,
-              )
+              PlayerMiniTransitionContainer(sheetHeight = sheetHeightDp) {
+                MiniPlayerBar(
+                  title = nowPlaying.title,
+                  artist = nowPlaying.artist,
+                  albumArtUrl = nowPlaying.albumArtUrl,
+                  isPlaying = nowPlaying.isPlaying,
+                  isBuffering = nowPlaying.isBuffering,
+                  hasPrevious = nowPlaying.hasPrevious,
+                  hasNext = nowPlaying.hasNext,
+                  onPrevious = { libraryViewModel.skipPrevious() },
+                  onPlayPause = { libraryViewModel.togglePlayPause() },
+                  onNext = { libraryViewModel.skipNext() },
+                  onClick = { openPlayerAnimated() },
+                  onDrag = { delta -> onPlayerDrag(delta) },
+                  onDragEnd = { velocity -> onPlayerDragEnd(velocity) },
+                  albumId = nowPlaying.albumId,
+                  artistId = nowPlaying.artistId,
+                  albumName = nowPlaying.albumName,
+                  onNavigateToAlbum = { navController.navigate(it) },
+                  onNavigateToArtist = { navController.navigate(it) },
+                  sessionStore = sessionStore,
+                  sharedTransitionScope = this@SharedTransitionLayout,
+                  animatedVisibilityScope = this@AnimatedContent,
+                  sharedContentKey = sharedContentKey,
+                )
+              }
             }
           }
         }

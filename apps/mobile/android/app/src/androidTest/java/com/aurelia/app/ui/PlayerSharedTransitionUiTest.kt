@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -98,6 +99,32 @@ class PlayerSharedTransitionUiTest {
       center.red > 0.98f && center.green > 0.98f && center.blue > 0.98f,
     )
   }
+
+  @Test
+  fun midExpansionKeepsMiniPlayerAtSheetBottom() {
+    val expansionProgress = mutableFloatStateOf(0f)
+
+    composeTestRule.setContent {
+      MaterialTheme {
+        PlayerTransitionHarness(
+          expansionProgress = expansionProgress.floatValue,
+          onMiniPlayerClick = {},
+        )
+      }
+    }
+
+    composeTestRule.runOnIdle { expansionProgress.floatValue = 0.5f }
+
+    val sheetBounds = composeTestRule.onNodeWithTag("player-sheet").getUnclippedBoundsInRoot()
+    val miniPlayerBounds = composeTestRule.onNodeWithTag("mini-player").getUnclippedBoundsInRoot()
+
+    assertEquals(
+      "Mini-player content must remain attached to the sheet's bottom edge",
+      sheetBounds.bottom.value,
+      miniPlayerBounds.bottom.value,
+      1f,
+    )
+  }
 }
 
 @Suppress("FunctionName")
@@ -108,6 +135,7 @@ private fun PlayerTransitionHarness(
 ) {
   val transitionState = remember { SeekableTransitionState(false) }
   val transition = rememberTransition(transitionState, label = "player-transition-harness")
+  val sheetHeight = lerp(64.dp, 700.dp, expansionProgress)
 
   LaunchedEffect(expansionProgress) {
     when {
@@ -133,8 +161,9 @@ private fun PlayerTransitionHarness(
     modifier =
       Modifier
         .width(360.dp)
-        .height(lerp(64.dp, 700.dp, expansionProgress))
-        .background(MaterialTheme.colorScheme.primaryContainer),
+        .height(sheetHeight)
+        .background(MaterialTheme.colorScheme.primaryContainer)
+        .testTag("player-sheet"),
   ) {
     SharedTransitionLayout {
       transition.AnimatedContent(
@@ -180,35 +209,37 @@ private fun PlayerTransitionHarness(
             )
           }
         } else {
-          Row(
-            modifier =
-              Modifier
-                .fillMaxWidth()
-                .height(64.dp)
-                .clickable(onClick = onMiniPlayerClick)
-                .testTag("mini-player"),
-            verticalAlignment = Alignment.CenterVertically,
-          ) {
-            Box(
+          PlayerMiniTransitionContainer(sheetHeight = sheetHeight) {
+            Row(
               modifier =
                 Modifier
-                  .size(48.dp)
-                  .background(Color.DarkGray)
-                  .playerSharedElement(
+                  .fillMaxWidth()
+                  .height(64.dp)
+                  .clickable(onClick = onMiniPlayerClick)
+                  .testTag("mini-player"),
+              verticalAlignment = Alignment.CenterVertically,
+            ) {
+              Box(
+                modifier =
+                  Modifier
+                    .size(48.dp)
+                    .background(Color.DarkGray)
+                    .playerSharedElement(
+                      sharedTransitionScope = this@SharedTransitionLayout,
+                      animatedVisibilityScope = this@AnimatedContent,
+                      key = "player-test-artwork",
+                    ),
+              )
+              Text(
+                text = "Test song",
+                modifier =
+                  Modifier.playerSharedBounds(
                     sharedTransitionScope = this@SharedTransitionLayout,
                     animatedVisibilityScope = this@AnimatedContent,
-                    key = "player-test-artwork",
+                    key = "player-test-title",
                   ),
-            )
-            Text(
-              text = "Test song",
-              modifier =
-                Modifier.playerSharedBounds(
-                  sharedTransitionScope = this@SharedTransitionLayout,
-                  animatedVisibilityScope = this@AnimatedContent,
-                  key = "player-test-title",
-                ),
-            )
+              )
+            }
           }
         }
       }
