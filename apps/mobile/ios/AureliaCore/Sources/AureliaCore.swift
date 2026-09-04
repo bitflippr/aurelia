@@ -1703,71 +1703,6 @@ public func FfiConverterTypePlaylistUpdateData_lower(_ value: PlaylistUpdateData
 
 
 /**
- * Provider capabilities for feature gating.
- */
-public struct ProviderCapabilities: Equatable, Hashable {
-    public var supportsClientCapabilitiesRegistration: Bool
-    public var supportsPlaybackProgressReporting: Bool
-    public var supportsServerLyrics: Bool
-    public var supportsInstantMix: Bool
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(supportsClientCapabilitiesRegistration: Bool, supportsPlaybackProgressReporting: Bool, supportsServerLyrics: Bool, supportsInstantMix: Bool) {
-        self.supportsClientCapabilitiesRegistration = supportsClientCapabilitiesRegistration
-        self.supportsPlaybackProgressReporting = supportsPlaybackProgressReporting
-        self.supportsServerLyrics = supportsServerLyrics
-        self.supportsInstantMix = supportsInstantMix
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension ProviderCapabilities: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeProviderCapabilities: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProviderCapabilities {
-        return
-            try ProviderCapabilities(
-                supportsClientCapabilitiesRegistration: FfiConverterBool.read(from: &buf), 
-                supportsPlaybackProgressReporting: FfiConverterBool.read(from: &buf), 
-                supportsServerLyrics: FfiConverterBool.read(from: &buf), 
-                supportsInstantMix: FfiConverterBool.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: ProviderCapabilities, into buf: inout [UInt8]) {
-        FfiConverterBool.write(value.supportsClientCapabilitiesRegistration, into: &buf)
-        FfiConverterBool.write(value.supportsPlaybackProgressReporting, into: &buf)
-        FfiConverterBool.write(value.supportsServerLyrics, into: &buf)
-        FfiConverterBool.write(value.supportsInstantMix, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeProviderCapabilities_lift(_ buf: RustBuffer) throws -> ProviderCapabilities {
-    return try FfiConverterTypeProviderCapabilities.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeProviderCapabilities_lower(_ value: ProviderCapabilities) -> RustBuffer {
-    return FfiConverterTypeProviderCapabilities.lower(value)
-}
-
-
-/**
  * Song representing a music track or audio file
  */
 public struct Song: Equatable, Hashable {
@@ -2091,6 +2026,10 @@ public func FfiConverterTypeSong_lower(_ value: Song) -> RustBuffer {
  */
 public struct SyncProgress: Equatable, Hashable {
     /**
+     * Identifies the current operation within this profile.
+     */
+    public var operationId: UInt64
+    /**
      * Current stage of sync (e.g., "Fetching songs", "Saving to database")
      */
     public var stage: String
@@ -2111,6 +2050,9 @@ public struct SyncProgress: Equatable, Hashable {
     // declare one manually.
     public init(
         /**
+         * Identifies the current operation within this profile.
+         */operationId: UInt64, 
+        /**
          * Current stage of sync (e.g., "Fetching songs", "Saving to database")
          */stage: String, 
         /**
@@ -2122,6 +2064,7 @@ public struct SyncProgress: Equatable, Hashable {
         /**
          * Whether sync is complete
          */isComplete: Bool) {
+        self.operationId = operationId
         self.stage = stage
         self.current = current
         self.total = total
@@ -2144,6 +2087,7 @@ public struct FfiConverterTypeSyncProgress: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SyncProgress {
         return
             try SyncProgress(
+                operationId: FfiConverterUInt64.read(from: &buf), 
                 stage: FfiConverterString.read(from: &buf), 
                 current: FfiConverterUInt32.read(from: &buf), 
                 total: FfiConverterUInt32.read(from: &buf), 
@@ -2152,6 +2096,7 @@ public struct FfiConverterTypeSyncProgress: FfiConverterRustBuffer {
     }
 
     public static func write(_ value: SyncProgress, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.operationId, into: &buf)
         FfiConverterString.write(value.stage, into: &buf)
         FfiConverterUInt32.write(value.current, into: &buf)
         FfiConverterUInt32.write(value.total, into: &buf)
@@ -3331,6 +3276,9 @@ public func buildMobileStreamUrl(serverUrl: String, token: String, itemId: Strin
     )
 })
 }
+/**
+ * Replace the complete cached song list, preserving artist/album metadata and sync state.
+ */
 public func cacheSongs(appDataDir: String, songs: [Song])throws   {try rustCallWithError(FfiConverterTypeAppError_lift) {
     uniffi_aurelia_core_fn_func_cache_songs(
         FfiConverterString.lower(appDataDir),
@@ -3399,20 +3347,6 @@ public func deriveMobileHomeData(songs: [Song], mostPlayedLimit: Int64, recently
     )
 })
 }
-public func detectProvider(serverUrl: String)async throws  -> BackendProvider  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_aurelia_core_fn_func_detect_provider(FfiConverterString.lower(serverUrl)
-                )
-            },
-            pollFunc: ffi_aurelia_core_rust_future_poll_rust_buffer,
-            completeFunc: ffi_aurelia_core_rust_future_complete_rust_buffer,
-            freeFunc: ffi_aurelia_core_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeBackendProvider_lift,
-            errorHandler: FfiConverterTypeAppError_lift
-        )
-}
 /**
  * Fetch a single album from server and cache it
  */
@@ -3447,6 +3381,9 @@ public func fetchArtist(serverUrl: String, token: String, userId: String, artist
             errorHandler: FfiConverterTypeAppError_lift
         )
 }
+/**
+ * Fetch the complete song list and replace its cache without advancing library sync state.
+ */
 public func fetchSongs(serverUrl: String, token: String, userId: String, appDataDir: String)async throws  -> [Song]  {
     return
         try  await uniffiRustCallAsync(
@@ -3587,13 +3524,6 @@ public func getPlaylists(serverUrl: String, token: String, userId: String)async 
             errorHandler: FfiConverterTypeAppError_lift
         )
 }
-public func getProviderCapabilities(provider: BackendProvider) -> ProviderCapabilities  {
-    return try!  FfiConverterTypeProviderCapabilities_lift(try! rustCall() {
-    uniffi_aurelia_core_fn_func_get_provider_capabilities(
-        FfiConverterTypeBackendProvider_lower(provider),$0
-    )
-})
-}
 public func getRecentlyPlayed(serverUrl: String, token: String, userId: String)async throws  -> [Song]  {
     return
         try  await uniffiRustCallAsync(
@@ -3623,12 +3553,12 @@ public func getRelatedArtists(appDataDir: String, artistId: String)async throws 
         )
 }
 /**
- * Returns the current sync progress for UI polling.
- * Updated after each page during a full sync; resets to default between syncs.
+ * Returns progress for the specified profile and operation.
  */
-public func getSyncProgress() -> SyncProgress  {
+public func getSyncProgress(appDataDir: String) -> SyncProgress  {
     return try!  FfiConverterTypeSyncProgress_lift(try! rustCall() {
-    uniffi_aurelia_core_fn_func_get_sync_progress($0
+    uniffi_aurelia_core_fn_func_get_sync_progress(
+        FfiConverterString.lower(appDataDir),$0
     )
 })
 }
@@ -3698,6 +3628,48 @@ public func removePlaylistItems(serverUrl: String, token: String, playlistId: St
             errorHandler: FfiConverterTypeAppError_lift
         )
 }
+public func reportPlaybackProgressEvent(serverUrl: String, token: String, itemId: String, positionTicks: Int64, isPaused: Bool)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_aurelia_core_fn_func_report_playback_progress_event(FfiConverterString.lower(serverUrl),FfiConverterString.lower(token),FfiConverterString.lower(itemId),FfiConverterInt64.lower(positionTicks),FfiConverterBool.lower(isPaused)
+                )
+            },
+            pollFunc: ffi_aurelia_core_rust_future_poll_void,
+            completeFunc: ffi_aurelia_core_rust_future_complete_void,
+            freeFunc: ffi_aurelia_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeAppError_lift
+        )
+}
+public func reportPlaybackStartEvent(serverUrl: String, token: String, itemId: String, positionTicks: Int64?)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_aurelia_core_fn_func_report_playback_start_event(FfiConverterString.lower(serverUrl),FfiConverterString.lower(token),FfiConverterString.lower(itemId),FfiConverterOptionInt64.lower(positionTicks)
+                )
+            },
+            pollFunc: ffi_aurelia_core_rust_future_poll_void,
+            completeFunc: ffi_aurelia_core_rust_future_complete_void,
+            freeFunc: ffi_aurelia_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeAppError_lift
+        )
+}
+public func reportPlaybackStopEvent(serverUrl: String, token: String, itemId: String, positionTicks: Int64)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_aurelia_core_fn_func_report_playback_stop_event(FfiConverterString.lower(serverUrl),FfiConverterString.lower(token),FfiConverterString.lower(itemId),FfiConverterInt64.lower(positionTicks)
+                )
+            },
+            pollFunc: ffi_aurelia_core_rust_future_poll_void,
+            completeFunc: ffi_aurelia_core_rust_future_complete_void,
+            freeFunc: ffi_aurelia_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeAppError_lift
+        )
+}
 public func saveCredentials(appDataDir: String, credentials: Credentials)throws   {try rustCallWithError(FfiConverterTypeAppError_lift) {
     uniffi_aurelia_core_fn_func_save_credentials(
         FfiConverterString.lower(appDataDir),
@@ -3739,9 +3711,8 @@ public func syncFavorites(serverUrl: String, token: String, userId: String, appD
         )
 }
 /**
- * Smart sync: paginated + incremental. Decides whether to do a full or delta sync
- * based on the existing SyncState. Handles large libraries without OOM and
- * resumes interrupted full syncs.
+ * Fetch a validated full or incremental update and commit it atomically.
+ * Concurrent callers for one profile share the same operation and result.
  */
 public func syncLibrarySmart(serverUrl: String, token: String, userId: String, appDataDir: String)async throws  -> SyncReport  {
     return
@@ -3759,6 +3730,7 @@ public func syncLibrarySmart(serverUrl: String, token: String, userId: String, a
 }
 /**
  * Sync only songs (fast startup). Artists/albums are fetched on-demand.
+ * Preserves the library sync checkpoint; returns whether the song cache was empty.
  */
 public func syncSongsOnly(serverUrl: String, token: String, userId: String, appDataDir: String)async throws  -> Bool  {
     return
@@ -3830,7 +3802,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_aurelia_core_checksum_func_build_mobile_stream_url() != 25517) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_aurelia_core_checksum_func_cache_songs() != 10571) {
+    if (uniffi_aurelia_core_checksum_func_cache_songs() != 6556) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_aurelia_core_checksum_func_clear_cache() != 40058) {
@@ -3851,16 +3823,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_aurelia_core_checksum_func_derive_mobile_home_data() != 22516) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_aurelia_core_checksum_func_detect_provider() != 4821) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_aurelia_core_checksum_func_fetch_album() != 8785) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_aurelia_core_checksum_func_fetch_artist() != 47144) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_aurelia_core_checksum_func_fetch_songs() != 49218) {
+    if (uniffi_aurelia_core_checksum_func_fetch_songs() != 12314) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_aurelia_core_checksum_func_get_cached_album() != 1296) {
@@ -3893,16 +3862,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_aurelia_core_checksum_func_get_playlists() != 13349) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_aurelia_core_checksum_func_get_provider_capabilities() != 18095) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_aurelia_core_checksum_func_get_recently_played() != 2943) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_aurelia_core_checksum_func_get_related_artists() != 7847) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_aurelia_core_checksum_func_get_sync_progress() != 32226) {
+    if (uniffi_aurelia_core_checksum_func_get_sync_progress() != 59483) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_aurelia_core_checksum_func_get_sync_state() != 52332) {
@@ -3926,6 +3892,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_aurelia_core_checksum_func_remove_playlist_items() != 51993) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_aurelia_core_checksum_func_report_playback_progress_event() != 40495) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_aurelia_core_checksum_func_report_playback_start_event() != 45596) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_aurelia_core_checksum_func_report_playback_stop_event() != 30251) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_aurelia_core_checksum_func_save_credentials() != 2487) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3938,10 +3913,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_aurelia_core_checksum_func_sync_favorites() != 39978) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_aurelia_core_checksum_func_sync_library_smart() != 54797) {
+    if (uniffi_aurelia_core_checksum_func_sync_library_smart() != 38153) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_aurelia_core_checksum_func_sync_songs_only() != 1256) {
+    if (uniffi_aurelia_core_checksum_func_sync_songs_only() != 55478) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_aurelia_core_checksum_func_toggle_favorite() != 55632) {

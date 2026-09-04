@@ -35,6 +35,7 @@ struct PlayerSnapshot: Equatable {
     var codec: String?
     var bitRate: Int32?
     var sampleRate: Int32?
+    var queueRevision: UInt64 = 0
 }
 
 // MARK: - Playback Position

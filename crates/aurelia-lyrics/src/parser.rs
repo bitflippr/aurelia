@@ -87,19 +87,8 @@ pub fn parse_plain_text(content: &str) -> ParsedLyrics {
         .collect();
 
     ParsedLyrics {
-        plain: plain.clone(),
-        synced: plain
-            .into_iter()
-            .enumerate()
-            .map(|(i, line)| ParsedLyricsLine {
-                time_ms: i as i64 * 5_000, // Dummy 5s spacing
-                end_time_ms: None,
-                line,
-                words: None,
-                agent_id: None,
-                translation: None,
-            })
-            .collect(),
+        plain,
+        synced: vec![],
         sections: None,
         agents: None,
         songwriters: None,
@@ -108,12 +97,9 @@ pub fn parse_plain_text(content: &str) -> ParsedLyrics {
     }
 }
 
-/// Parse enhanced LRC format with word-level timing
-/// Format: [mm:ss.xx]word [mm:ss.xx]word
-pub fn parse_elrc(content: &str) -> Result<ParsedLyrics> {
-    // For now, fall back to regular LRC parsing
-    // Word-level parsing would require more complex regex
-    parse_lrc(content)
+/// Enhanced LRC word timing is not supported. Do not silently discard words.
+pub fn parse_elrc(_content: &str) -> Result<ParsedLyrics> {
+    Err(crate::error::LyricsError::UnsupportedFormat)
 }
 
 /// Auto-detect format and parse
@@ -130,5 +116,33 @@ pub fn parse_auto(content: &str, extension: &str) -> Result<ParsedLyrics> {
                 Ok(parse_plain_text(content))
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plain_text_has_no_invented_timing() {
+        let parsed = parse_plain_text(" First line\n\nSecond line ");
+        assert_eq!(parsed.plain, ["First line", "Second line"]);
+        assert!(parsed.synced.is_empty());
+    }
+
+    #[test]
+    fn enhanced_lrc_is_explicitly_unsupported() {
+        assert!(matches!(
+            parse_auto("[00:01.00]Hello [00:02.00]world", "elrc"),
+            Err(crate::error::LyricsError::UnsupportedFormat)
+        ));
+    }
+
+    #[test]
+    fn malformed_ttml_is_not_an_empty_success() {
+        for xml in ["", "<html/>", "<tt><body>", "<tt><body></tt>", "<tt/><tt/>"] {
+            assert!(crate::parse_ttml(xml).is_err(), "{xml}");
+        }
+        assert!(crate::parse_ttml("<tt/>").unwrap().synced.is_empty());
     }
 }

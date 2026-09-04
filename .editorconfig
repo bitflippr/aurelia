@@ -15,6 +15,7 @@ max_line_length = 120
 [*.{kt,kts,java,gradle}]
 indent_style = space
 indent_size = 2
+ktlint_function_naming_ignore_when_annotated_with = Composable
 
 # JSON files
 [*.json]

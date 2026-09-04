@@ -1,6 +1,4 @@
 pluginManagement {
-    includeBuild(File(settingsDir, "gradle/plugins/compose-plugin"))
-
     repositories {
         google()
         mavenCentral()

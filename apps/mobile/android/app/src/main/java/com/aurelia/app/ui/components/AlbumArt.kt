@@ -66,11 +66,13 @@ fun AlbumArt(
       Box(modifier = Modifier.fillMaxSize()) {
         PlaceholderIcon(icon = icon, contentColor = contentColor, size = size)
         AsyncImage(
-          model = ImageRequest.Builder(context)
-            .data(optimizedArtworkUrl(imageUrl, pxSize))
-            .crossfade(false)
-            .size(pxSize)
-            .build(),
+          model =
+            ImageRequest
+              .Builder(context)
+              .data(optimizedArtworkUrl(imageUrl, pxSize))
+              .crossfade(false)
+              .size(pxSize)
+              .build(),
           contentDescription = "Album art",
           modifier = Modifier.fillMaxSize(),
           contentScale = ContentScale.Crop,

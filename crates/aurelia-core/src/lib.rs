@@ -16,40 +16,6 @@ pub fn ping() -> String {
     "pong".to_string()
 }
 
-#[must_use]
-pub fn infer_provider_from_token(_token: &str) -> models::BackendProvider {
-    models::BackendProvider::Jellyfin
-}
-
-#[uniffi::export(async_runtime = "tokio")]
-pub async fn detect_provider(
-    server_url: String,
-) -> Result<models::BackendProvider, error::AppError> {
-    let jellyfin_probe = utils::build_jellyfin_url(&server_url, "/System/Info/Public");
-    let response = reqwest::Client::new().get(jellyfin_probe).send().await?;
-    if response.status().is_success() {
-        return Ok(models::BackendProvider::Jellyfin);
-    }
-
-    Err(error::AppError::Config(
-        "Unable to detect backend provider".to_string(),
-    ))
-}
-
-#[uniffi::export]
-pub fn get_provider_capabilities(
-    provider: models::BackendProvider,
-) -> models::ProviderCapabilities {
-    match provider {
-        models::BackendProvider::Jellyfin => models::ProviderCapabilities {
-            supports_client_capabilities_registration: true,
-            supports_playback_progress_reporting: true,
-            supports_server_lyrics: true,
-            supports_instant_mix: true,
-        },
-    }
-}
-
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn authenticate(
     request: models::AuthRequest,
@@ -64,6 +30,7 @@ pub async fn authenticate(
     }
 }
 
+/// Fetch the complete song list and replace its cache without advancing library sync state.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn fetch_songs(
     server_url: String,
@@ -77,7 +44,7 @@ pub async fn fetch_songs(
     };
     if !app_data_dir.is_empty() {
         let app_dir = std::path::PathBuf::from(app_data_dir);
-        if let Err(err) = cache::sync_library(app_dir, &songs, &[], &[]) {
+        if let Err(err) = cache::replace_songs(app_dir, &songs) {
             tracing::warn!("Failed to cache songs: {err}");
         }
     }
@@ -112,14 +79,14 @@ pub fn derive_mobile_home_data(
     domain::services::derive_mobile_home_data(&songs, limits, &mut rng)
 }
 
+/// Replace the complete cached song list, preserving artist/album metadata and sync state.
 #[uniffi::export]
 pub fn cache_songs(app_data_dir: String, songs: Vec<models::Song>) -> Result<(), error::AppError> {
     if app_data_dir.is_empty() {
         return Ok(());
     }
     let app_dir = std::path::PathBuf::from(app_data_dir);
-    cache::sync_library(app_dir, &songs, &[], &[])
-        .map_err(|err| error::AppError::Database(err.to_string()))
+    cache::replace_songs(app_dir, &songs).map_err(|err| error::AppError::Database(err.to_string()))
 }
 
 #[uniffi::export]
@@ -321,11 +288,7 @@ pub async fn get_lyrics(
     title: String,
 ) -> String {
     // 1. Try server lyrics for providers that support it
-    if !server_url.is_empty()
-        && !token.is_empty()
-        && !item_id.is_empty()
-        && infer_provider_from_token(&token) == models::BackendProvider::Jellyfin
-    {
+    if !server_url.is_empty() && !token.is_empty() && !item_id.is_empty() {
         let client = services::JellyfinClient::with_auth(server_url, token);
         if let Ok(Some(jf_lyrics)) = client.get_lyrics(&item_id).await
             && let Ok(lrc) = utils::lyrics::jellyfin_to_lrc(&jf_lyrics)
@@ -353,15 +316,11 @@ pub async fn get_parsed_lyrics(
 ) -> models::ParsedLyrics {
     // 1. Prefer Jellyfin's native lyrics API. Our TTML Jellyfin fork exposes
     // word timing, sections, agents, translations, language, and songwriters here.
-    if !server_url.is_empty()
-        && !token.is_empty()
-        && !item_id.is_empty()
-        && infer_provider_from_token(&token) == models::BackendProvider::Jellyfin
-    {
+    if !server_url.is_empty() && !token.is_empty() && !item_id.is_empty() {
         tracing::info!(
             "[Lyrics] Trying Jellyfin: itemId={}, serverUrl={}...",
             item_id,
-            &server_url[..server_url.len().min(30)]
+            server_url.chars().take(30).collect::<String>()
         );
         let client = services::JellyfinClient::with_auth(server_url.clone(), token.clone());
         match client.get_lyrics(&item_id).await {
@@ -515,10 +474,10 @@ pub async fn register_client_capabilities(
     }
 }
 
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn report_playback_start_event(
     server_url: String,
     token: String,
-    _user_id: String,
     item_id: String,
     position_ticks: Option<i64>,
 ) -> Result<(), error::AppError> {
@@ -528,10 +487,10 @@ pub async fn report_playback_start_event(
     }
 }
 
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn report_playback_progress_event(
     server_url: String,
     token: String,
-    _user_id: String,
     item_id: String,
     position_ticks: i64,
     is_paused: bool,
@@ -544,10 +503,10 @@ pub async fn report_playback_progress_event(
     }
 }
 
+#[uniffi::export(async_runtime = "tokio")]
 pub async fn report_playback_stop_event(
     server_url: String,
     token: String,
-    _user_id: String,
     item_id: String,
     position_ticks: i64,
 ) -> Result<(), error::AppError> {
@@ -693,6 +652,7 @@ pub async fn mark_item_played(
 // Lazy-load functions for hybrid sync
 
 /// Sync only songs (fast startup). Artists/albums are fetched on-demand.
+/// Preserves the library sync checkpoint; returns whether the song cache was empty.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn sync_songs_only(
     server_url: String,
@@ -700,9 +660,10 @@ pub async fn sync_songs_only(
     user_id: String,
     app_data_dir: String,
 ) -> Result<bool, error::AppError> {
-    // Initialize database
+    // Retain this profile's database for the whole operation
     let app_data_path = std::path::PathBuf::from(&app_data_dir);
-    db::init(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
+    let database =
+        db::open(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
 
     // Fetch songs only
     let songs = {
@@ -710,23 +671,19 @@ pub async fn sync_songs_only(
         client.get_music_library(&user_id).await?
     };
 
-    // Use incremental sync
-    db::sync_songs_only(&songs).map_err(|e| error::AppError::Database(e.to_string()))
+    domain::services::LibraryService::new(database)
+        .replace_songs(&songs)
+        .map_err(|e| error::AppError::Database(e.to_string()))
 }
 
-/// Returns the current sync progress for UI polling.
-/// Updated after each page during a full sync; resets to default between syncs.
+/// Returns progress for the specified profile and operation.
 #[uniffi::export]
-pub fn get_sync_progress() -> domain::SyncProgress {
-    db::SYNC_PROGRESS
-        .lock()
-        .map(|g| g.clone())
-        .unwrap_or_default()
+pub fn get_sync_progress(app_data_dir: String) -> domain::SyncProgress {
+    services::library_sync::progress(&app_data_dir)
 }
 
-/// Smart sync: paginated + incremental. Decides whether to do a full or delta sync
-/// based on the existing SyncState. Handles large libraries without OOM and
-/// resumes interrupted full syncs.
+/// Fetch a validated full or incremental update and commit it atomically.
+/// Concurrent callers for one profile share the same operation and result.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn sync_library_smart(
     server_url: String,
@@ -734,31 +691,7 @@ pub async fn sync_library_smart(
     user_id: String,
     app_data_dir: String,
 ) -> Result<domain::SyncReport, error::AppError> {
-    // Initialize database
-    let app_data_path = std::path::PathBuf::from(&app_data_dir);
-    db::init(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
-
-    {
-        // Create client and run smart sync
-        let client = services::JellyfinClient::with_auth(server_url, token);
-
-        let db = db::get().map_err(|e| error::AppError::Database(e.to_string()))?;
-        let service = crate::domain::services::LibraryService::new(db);
-        let state = service
-            .get_sync_state()
-            .map_err(|e| error::AppError::Database(e.to_string()))?;
-
-        tracing::info!(
-            "sync_library_smart: is_first_sync = {}, last_sync_time = {}, full_sync_in_progress = {}",
-            state.last_sync_time == "1970-01-01T00:00:00Z",
-            state.last_sync_time,
-            state.full_sync_in_progress
-        );
-
-        db::sync_smart(&client, &user_id)
-            .await
-            .map_err(|e| error::AppError::Database(e.to_string()))
-    }
+    services::library_sync::synchronize(app_data_dir, server_url, token, user_id).await
 }
 
 /// Sync favorite status for all songs after initial library sync.
@@ -771,14 +704,16 @@ pub async fn sync_favorites(
     app_data_dir: String,
 ) -> Result<u32, error::AppError> {
     let app_data_path = std::path::PathBuf::from(&app_data_dir);
-    db::init(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
+    let database =
+        db::open(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
 
     let favorite_ids = {
         let client = services::JellyfinClient::with_auth(server_url, token);
         client.get_favorite_ids(&user_id).await?
     };
 
-    let favorite_count = db::update_songs_favorite_status(&app_data_path, &favorite_ids)
+    let favorite_count = domain::services::LibraryService::new(database)
+        .sync_favorites(&favorite_ids)
         .map_err(|e| error::AppError::Database(e.to_string()))?;
 
     Ok(favorite_count)
@@ -793,9 +728,10 @@ pub async fn fetch_artist(
     artist_id: String,
     app_data_dir: String,
 ) -> Result<models::Artist, error::AppError> {
-    // Initialize database
+    // Retain this profile's database for the whole operation
     let app_data_path = std::path::PathBuf::from(&app_data_dir);
-    db::init(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
+    let database =
+        db::open(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
 
     // Fetch from server
     let artist = {
@@ -804,7 +740,9 @@ pub async fn fetch_artist(
     };
 
     // Cache in database
-    db::artists::cache(&artist).map_err(|e| error::AppError::Database(e.to_string()))?;
+    domain::services::LibraryService::new(database)
+        .upsert_artists(std::slice::from_ref(&artist))
+        .map_err(|e| error::AppError::Database(e.to_string()))?;
 
     Ok(artist)
 }
@@ -818,9 +756,10 @@ pub async fn fetch_album(
     album_id: String,
     app_data_dir: String,
 ) -> Result<models::Album, error::AppError> {
-    // Initialize database
+    // Retain this profile's database for the whole operation
     let app_data_path = std::path::PathBuf::from(&app_data_dir);
-    db::init(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
+    let database =
+        db::open(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
 
     // Fetch from server
     let album = {
@@ -829,7 +768,9 @@ pub async fn fetch_album(
     };
 
     // Cache in database
-    db::albums::cache(&album).map_err(|e| error::AppError::Database(e.to_string()))?;
+    domain::services::LibraryService::new(database)
+        .upsert_albums(std::slice::from_ref(&album))
+        .map_err(|e| error::AppError::Database(e.to_string()))?;
 
     Ok(album)
 }
@@ -841,9 +782,11 @@ pub fn get_cached_artist(
     artist_id: String,
 ) -> Result<Option<models::Artist>, error::AppError> {
     let app_data_path = std::path::PathBuf::from(&app_data_dir);
-    db::init(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
+    let database =
+        db::open(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
 
-    db::artists::get_by_id(&artist_id).map_err(|e| error::AppError::Database(e.to_string()))
+    db::artists::get_by_id(&database, &artist_id)
+        .map_err(|e| error::AppError::Database(e.to_string()))
 }
 
 /// Get a cached album from local database
@@ -853,9 +796,11 @@ pub fn get_cached_album(
     album_id: String,
 ) -> Result<Option<models::Album>, error::AppError> {
     let app_data_path = std::path::PathBuf::from(&app_data_dir);
-    db::init(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
+    let database =
+        db::open(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
 
-    db::albums::get_by_id(&album_id).map_err(|e| error::AppError::Database(e.to_string()))
+    db::albums::get_by_id(&database, &album_id)
+        .map_err(|e| error::AppError::Database(e.to_string()))
 }
 
 /// Get a cached song from local database
@@ -865,9 +810,10 @@ pub fn get_cached_song(
     song_id: String,
 ) -> Result<Option<models::Song>, error::AppError> {
     let app_data_path = std::path::PathBuf::from(&app_data_dir);
-    db::init(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
+    let database =
+        db::open(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
 
-    db::songs::get_by_id(&song_id).map_err(|e| error::AppError::Database(e.to_string()))
+    db::songs::get_by_id(&database, &song_id).map_err(|e| error::AppError::Database(e.to_string()))
 }
 
 #[uniffi::export(async_runtime = "tokio")]
@@ -900,11 +846,13 @@ pub async fn get_related_artists(
     artist_id: String,
 ) -> Result<Vec<models::Artist>, error::AppError> {
     let app_data_path = std::path::PathBuf::from(&app_data_dir);
-    db::init(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
+    let database =
+        db::open(&app_data_path).map_err(|e| error::AppError::Database(e.to_string()))?;
 
     let all_artists =
-        db::artists::get_all().map_err(|e| error::AppError::Database(e.to_string()))?;
-    let all_songs = db::songs::get_all().map_err(|e| error::AppError::Database(e.to_string()))?;
+        db::artists::get_all(&database).map_err(|e| error::AppError::Database(e.to_string()))?;
+    let all_songs =
+        db::songs::get_all(&database).map_err(|e| error::AppError::Database(e.to_string()))?;
 
     let current_artist = all_artists
         .iter()

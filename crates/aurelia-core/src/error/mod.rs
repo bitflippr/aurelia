@@ -38,7 +38,13 @@ pub enum AppError {
 
 impl From<reqwest::Error> for AppError {
     fn from(err: reqwest::Error) -> Self {
-        Self::Network(err.to_string())
+        match err.status() {
+            Some(status) => Self::Http {
+                status: status.as_u16(),
+                detail: err.to_string(),
+            },
+            None => Self::Network(err.to_string()),
+        }
     }
 }
 

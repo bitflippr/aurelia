@@ -23,7 +23,9 @@ final class AudioPlayerController: @unchecked Sendable {
     // MARK: - Private State
 
     private var player: AVQueuePlayer
-    private var songQueue: [Song] = []
+    private var songQueue: [Song] = [] {
+        didSet { snapshot.queueRevision &+= 1 }
+    }
     private var queueBeforeShuffle: [Song]?
     private var currentIndex: Int = -1
     private var lastServerUrl: String = ""
@@ -37,6 +39,7 @@ final class AudioPlayerController: @unchecked Sendable {
     private var visualizerTargetFrequency: [UInt8] = []
     private var visualizerTargetWaveform: [UInt8] = []
     private let sessionStore = SessionStore.shared
+    private let playbackReporting = PlaybackReporting()
     private let visualizerAnalyzer = PlayerAudioTapAnalyzer()
     private let logger = Logger(subsystem: "com.aurelia.app", category: "AudioPlayer")
 
@@ -430,6 +433,7 @@ final class AudioPlayerController: @unchecked Sendable {
     // MARK: - Queue Management
 
     func setQueue(_ songs: [Song], serverUrl: String, token: String, startIndex: Int = 0, autoPlay: Bool = true) {
+        playbackReporting.finish(positionMs: playbackPosition.positionMs)
         ensureAudioSession()
         songQueue = songs
         playSessionIdsByItemId.removeAll(keepingCapacity: true)
@@ -502,11 +506,7 @@ final class AudioPlayerController: @unchecked Sendable {
         }
 
         if currentIndex >= 0, currentIndex < songQueue.count {
-            let wasPlaying = player.rate > 0
-            rebuildPlayerQueue(startingAt: currentIndex)
-            if wasPlaying {
-                player.play()
-            }
+            replaceUpcomingItems()
             updateSnapshot()
             updateNowPlayingInfo()
         }
@@ -514,6 +514,7 @@ final class AudioPlayerController: @unchecked Sendable {
 
     func playQueueItem(_ index: Int) {
         guard index >= 0, index < songQueue.count else { return }
+        playbackReporting.finish(positionMs: playbackPosition.positionMs)
         ensureAudioSession()
 
         rebuildPlayerQueue(startingAt: index, preloadItemCount: Self.initialPreloadedItems)
@@ -537,14 +538,14 @@ final class AudioPlayerController: @unchecked Sendable {
     }
 
     func play() {
-        logger.info("Play called")
-        ensureAudioSession()
-        player.play()
-        updateSnapshot()
-        updateNowPlayingInfo()
+        resume()
     }
 
     func resume() {
+        if player.currentItem == nil, currentIndex >= 0, currentIndex < songQueue.count {
+            playQueueItem(currentIndex)
+            return
+        }
         ensureAudioSession()
         player.play()
         updateSnapshot()
@@ -552,6 +553,7 @@ final class AudioPlayerController: @unchecked Sendable {
     }
 
     func stop() {
+        playbackReporting.finish(positionMs: playbackPosition.positionMs)
         player.pause()
         player.removeAllItems()
         songQueue.removeAll()
@@ -594,6 +596,7 @@ final class AudioPlayerController: @unchecked Sendable {
 
     func skipNext() {
         guard currentIndex + 1 < songQueue.count else { return }
+        playbackReporting.finish(positionMs: playbackPosition.positionMs)
         if loadedQueueRange?.contains(currentIndex + 1) != true {
             rebuildPlayerQueue(startingAt: currentIndex)
         }
@@ -651,6 +654,7 @@ final class AudioPlayerController: @unchecked Sendable {
     // MARK: - Track Transition
 
     private func handleTrackEnded() {
+        playbackReporting.finish(positionMs: playbackPosition.durationMs)
         if snapshot.repeatMode == .one {
             // Replay current track
             player.seek(to: .zero)
@@ -730,12 +734,16 @@ final class AudioPlayerController: @unchecked Sendable {
             playbackSpeed: player.rate != 0 ? player.rate : snapshot.playbackSpeed,
             codec: song?.codec,
             bitRate: song?.bitRate.flatMap { Int32($0) },
-            sampleRate: song?.sampleRate.flatMap { Int32($0) }
+            sampleRate: song?.sampleRate.flatMap { Int32($0) },
+            queueRevision: snapshot.queueRevision
         )
 
         if snapshot != candidate {
             snapshot = candidate
         }
+        playbackReporting.update(
+            songID: song?.id, serverURL: lastServerUrl, token: lastToken,
+            positionMs: playbackPosition.positionMs, isPlaying: player.rate > 0)
         updateVisualizerDisplayLinkState()
     }
 
@@ -837,6 +845,17 @@ final class AudioPlayerController: @unchecked Sendable {
         }
 
         loadedQueueRange = range
+    }
+
+    /// Queue edits must retain the current item, its elapsed time, and paused state.
+    private func replaceUpcomingItems() {
+        guard currentIndex >= 0, currentIndex < songQueue.count,
+              let currentItem = player.currentItem else { return }
+        for item in player.items() where item !== currentItem {
+            player.remove(item)
+        }
+        loadedQueueRange = currentIndex ... currentIndex
+        preloadUpcomingItems()
     }
 
     private func scheduleDeferredPreload() {

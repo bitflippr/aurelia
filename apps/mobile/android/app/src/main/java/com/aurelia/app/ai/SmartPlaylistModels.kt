@@ -27,7 +27,16 @@ data class SmartPlaylistPreview(
 
 sealed interface AiGenerationState {
   data object Idle : AiGenerationState
-  data class Loading(val message: String = "Generating on device") : AiGenerationState
-  data class Preview(val preview: SmartPlaylistPreview) : AiGenerationState
-  data class Error(val message: String) : AiGenerationState
+
+  data class Loading(
+    val message: String = "Generating on device",
+  ) : AiGenerationState
+
+  data class Preview(
+    val preview: SmartPlaylistPreview,
+  ) : AiGenerationState
+
+  data class Error(
+    val message: String,
+  ) : AiGenerationState
 }

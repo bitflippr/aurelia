@@ -642,7 +642,9 @@ private fun AiModelDownloadBlock(
             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
           }
           Text(
-            text = "${formatBytes(modelDownload.bytesRead)} / ${modelDownload.totalBytes?.let(::formatBytes) ?: "unknown"}",
+            text = "${formatBytes(
+              modelDownload.bytesRead,
+            )} / ${modelDownload.totalBytes?.let(::formatBytes) ?: "unknown"}",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )

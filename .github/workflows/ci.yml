@@ -26,10 +26,33 @@ jobs:
         run: cargo fmt --check
 
       - name: Lint
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --exclude aurelia-desktop --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --workspace --exclude aurelia-desktop
+
+  desktop:
+    name: Desktop prototype
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install native development dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libdbus-1-dev libfontconfig1-dev \
+            libfreetype6-dev libglib2.0-dev libdrm-dev libgbm-dev libegl1-mesa-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libwayland-dev \
+            libx11-dev libxcomposite-dev libxdamage-dev libxext-dev libxfixes-dev \
+            libxrandr-dev libxcb1-dev libxcb-shape0-dev libxcb-xfixes0-dev
+      - name: Lint and test desktop
+        run: |
+          cargo clippy -p aurelia-desktop --all-targets -- -D warnings
+          cargo test -p aurelia-desktop
 
   android:
     name: Android

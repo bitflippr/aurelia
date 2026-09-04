@@ -10,24 +10,24 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.key
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.aurelia.app.auth.AuthInterceptor
 import com.aurelia.app.storage.SessionStore
+import com.aurelia.app.sync.SyncWorker
 import com.aurelia.app.ui.AppViewModel
-import com.aurelia.app.ui.viewModelFactory
 import com.aurelia.app.ui.LoginScreen
 import com.aurelia.app.ui.MainScreen
 import com.aurelia.app.ui.SetupScreen
 import com.aurelia.app.ui.SharedPlayerControllerViewModel
 import com.aurelia.app.ui.theme.AureliaTheme
-import com.aurelia.app.sync.SyncWorker
+import com.aurelia.app.ui.viewModelFactory
 
 class MainActivity : ComponentActivity() {
   private val notificationPermissionLauncher =
@@ -46,8 +46,9 @@ class MainActivity : ComponentActivity() {
 
   private fun checkNotificationPermission() {
     val permissionStatus = checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
-    if (permissionStatus != PackageManager.PERMISSION_GRANTED)
+    if (permissionStatus != PackageManager.PERMISSION_GRANTED) {
       notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
   }
 }
 
@@ -56,8 +57,9 @@ private fun AureliaApp() {
   val context = LocalContext.current
   val sessionStore = remember { SessionStore(context) }
 
-  if (sessionStore.getAppDataDir().isNullOrBlank())
+  if (sessionStore.getAppDataDir().isNullOrBlank()) {
     sessionStore.setAppDataDir(context.filesDir.absolutePath)
+  }
 
   // Use SharedPlayerControllerViewModel to ensure PlayerController survives configuration changes
   val sharedPlayerViewModel: SharedPlayerControllerViewModel = viewModel()
@@ -121,7 +123,7 @@ private fun AureliaApp() {
               },
               onSetupComplete = {
                 appViewModel.checkSession()
-              }
+              },
             )
           }
         }

@@ -1,7 +1,6 @@
 package com.aurelia.app.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -16,44 +15,35 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.aurelia.app.ui.components.ActionButtonRow
 import com.aurelia.app.ui.components.AlbumArt
 import com.aurelia.app.ui.components.AlbumArtStyle
-import com.aurelia.app.ui.components.ActionButtonRow
 import com.aurelia.app.ui.components.BottomBarDimensions
 import com.aurelia.app.ui.components.DetailHeroGradient
 import com.aurelia.app.ui.theme.SquircleShape
 import com.aurelia.app.ui.theme.rememberGoogleSansFlexWideFont
 import com.aurelia.app.utils.formatDuration
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 
 @Composable
 fun PlaylistDetailScreen(
@@ -169,11 +159,12 @@ fun PlaylistDetailScreen(
               // Playlist name
               Text(
                 text = playlistName,
-                style = MaterialTheme.typography.headlineLarge.copy(
-                  fontFamily = wideFont,
-                  fontSize = 32.sp,
-                  lineHeight = 40.sp,
-                ),
+                style =
+                  MaterialTheme.typography.headlineLarge.copy(
+                    fontFamily = wideFont,
+                    fontSize = 32.sp,
+                    lineHeight = 40.sp,
+                  ),
                 fontWeight = FontWeight.Black,
                 color = colors.onPrimaryContainer,
                 maxLines = 2,

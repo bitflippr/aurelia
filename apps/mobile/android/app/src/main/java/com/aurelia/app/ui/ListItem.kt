@@ -7,6 +7,12 @@ import uniffi.aurelia_core.Song
  * Can be either a disc header or a song item.
  */
 sealed class ListItem {
-    data class DiscHeader(val discNumber: Int) : ListItem()
-    data class SongItem(val song: Song, val index: Int = -1) : ListItem()
+  data class DiscHeader(
+    val discNumber: Int,
+  ) : ListItem()
+
+  data class SongItem(
+    val song: Song,
+    val index: Int = -1,
+  ) : ListItem()
 }

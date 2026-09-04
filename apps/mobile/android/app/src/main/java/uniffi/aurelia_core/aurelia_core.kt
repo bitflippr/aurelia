@@ -667,8 +667,6 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_aurelia_core_checksum_func_derive_mobile_home_data(
     ): Short
-    external fun uniffi_aurelia_core_checksum_func_detect_provider(
-    ): Short
     external fun uniffi_aurelia_core_checksum_func_fetch_album(
     ): Short
     external fun uniffi_aurelia_core_checksum_func_fetch_artist(
@@ -695,8 +693,6 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_aurelia_core_checksum_func_get_playlists(
     ): Short
-    external fun uniffi_aurelia_core_checksum_func_get_provider_capabilities(
-    ): Short
     external fun uniffi_aurelia_core_checksum_func_get_recently_played(
     ): Short
     external fun uniffi_aurelia_core_checksum_func_get_related_artists(
@@ -716,6 +712,12 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_aurelia_core_checksum_func_ping(
     ): Short
     external fun uniffi_aurelia_core_checksum_func_remove_playlist_items(
+    ): Short
+    external fun uniffi_aurelia_core_checksum_func_report_playback_progress_event(
+    ): Short
+    external fun uniffi_aurelia_core_checksum_func_report_playback_start_event(
+    ): Short
+    external fun uniffi_aurelia_core_checksum_func_report_playback_stop_event(
     ): Short
     external fun uniffi_aurelia_core_checksum_func_save_credentials(
     ): Short
@@ -769,8 +771,6 @@ external fun uniffi_aurelia_core_fn_func_delete_setting(`appDataDir`: RustBuffer
 ): Unit
 external fun uniffi_aurelia_core_fn_func_derive_mobile_home_data(`songs`: RustBuffer.ByValue,`mostPlayedLimit`: Long,`recentlyPlayedLimit`: Long,`albumSectionLimit`: Long,`featuredAlbumsLimit`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
-external fun uniffi_aurelia_core_fn_func_detect_provider(`serverUrl`: RustBuffer.ByValue,
-): Long
 external fun uniffi_aurelia_core_fn_func_fetch_album(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`albumId`: RustBuffer.ByValue,`appDataDir`: RustBuffer.ByValue,
 ): Long
 external fun uniffi_aurelia_core_fn_func_fetch_artist(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`artistId`: RustBuffer.ByValue,`appDataDir`: RustBuffer.ByValue,
@@ -797,13 +797,11 @@ external fun uniffi_aurelia_core_fn_func_get_playlist_items(`serverUrl`: RustBuf
 ): Long
 external fun uniffi_aurelia_core_fn_func_get_playlists(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,
 ): Long
-external fun uniffi_aurelia_core_fn_func_get_provider_capabilities(`provider`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-): RustBuffer.ByValue
 external fun uniffi_aurelia_core_fn_func_get_recently_played(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,
 ): Long
 external fun uniffi_aurelia_core_fn_func_get_related_artists(`appDataDir`: RustBuffer.ByValue,`artistId`: RustBuffer.ByValue,
 ): Long
-external fun uniffi_aurelia_core_fn_func_get_sync_progress(uniffi_out_err: UniffiRustCallStatus, 
+external fun uniffi_aurelia_core_fn_func_get_sync_progress(`appDataDir`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_aurelia_core_fn_func_get_sync_state(`appDataDir`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -818,6 +816,12 @@ external fun uniffi_aurelia_core_fn_func_mark_item_played(`serverUrl`: RustBuffe
 external fun uniffi_aurelia_core_fn_func_ping(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_aurelia_core_fn_func_remove_playlist_items(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`playlistId`: RustBuffer.ByValue,`itemIds`: RustBuffer.ByValue,
+): Long
+external fun uniffi_aurelia_core_fn_func_report_playback_progress_event(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`itemId`: RustBuffer.ByValue,`positionTicks`: Long,`isPaused`: Byte,
+): Long
+external fun uniffi_aurelia_core_fn_func_report_playback_start_event(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`itemId`: RustBuffer.ByValue,`positionTicks`: RustBuffer.ByValue,
+): Long
+external fun uniffi_aurelia_core_fn_func_report_playback_stop_event(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`itemId`: RustBuffer.ByValue,`positionTicks`: Long,
 ): Long
 external fun uniffi_aurelia_core_fn_func_save_credentials(`appDataDir`: RustBuffer.ByValue,`credentials`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
@@ -966,7 +970,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_aurelia_core_checksum_func_build_mobile_stream_url() != 25517.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_aurelia_core_checksum_func_cache_songs() != 10571.toShort()) {
+    if (lib.uniffi_aurelia_core_checksum_func_cache_songs() != 6556.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aurelia_core_checksum_func_clear_cache() != 40058.toShort()) {
@@ -987,16 +991,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_aurelia_core_checksum_func_derive_mobile_home_data() != 22516.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_aurelia_core_checksum_func_detect_provider() != 4821.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
     if (lib.uniffi_aurelia_core_checksum_func_fetch_album() != 8785.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aurelia_core_checksum_func_fetch_artist() != 47144.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_aurelia_core_checksum_func_fetch_songs() != 49218.toShort()) {
+    if (lib.uniffi_aurelia_core_checksum_func_fetch_songs() != 12314.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aurelia_core_checksum_func_get_cached_album() != 1296.toShort()) {
@@ -1029,16 +1030,13 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_aurelia_core_checksum_func_get_playlists() != 13349.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_aurelia_core_checksum_func_get_provider_capabilities() != 18095.toShort()) {
-        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    }
     if (lib.uniffi_aurelia_core_checksum_func_get_recently_played() != 2943.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aurelia_core_checksum_func_get_related_artists() != 7847.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_aurelia_core_checksum_func_get_sync_progress() != 32226.toShort()) {
+    if (lib.uniffi_aurelia_core_checksum_func_get_sync_progress() != 59483.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aurelia_core_checksum_func_get_sync_state() != 52332.toShort()) {
@@ -1062,6 +1060,15 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_aurelia_core_checksum_func_remove_playlist_items() != 51993.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_aurelia_core_checksum_func_report_playback_progress_event() != 40495.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aurelia_core_checksum_func_report_playback_start_event() != 45596.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aurelia_core_checksum_func_report_playback_stop_event() != 30251.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_aurelia_core_checksum_func_save_credentials() != 2487.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1074,10 +1081,10 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_aurelia_core_checksum_func_sync_favorites() != 39978.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_aurelia_core_checksum_func_sync_library_smart() != 54797.toShort()) {
+    if (lib.uniffi_aurelia_core_checksum_func_sync_library_smart() != 38153.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_aurelia_core_checksum_func_sync_songs_only() != 1256.toShort()) {
+    if (lib.uniffi_aurelia_core_checksum_func_sync_songs_only() != 55478.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aurelia_core_checksum_func_toggle_favorite() != 55632.toShort()) {
@@ -2277,57 +2284,6 @@ public object FfiConverterTypePlaylistUpdateData: FfiConverterRustBuffer<Playlis
 
 
 /**
- * Provider capabilities for feature gating.
- */
-data class ProviderCapabilities (
-    var `supportsClientCapabilitiesRegistration`: kotlin.Boolean
-    , 
-    var `supportsPlaybackProgressReporting`: kotlin.Boolean
-    , 
-    var `supportsServerLyrics`: kotlin.Boolean
-    , 
-    var `supportsInstantMix`: kotlin.Boolean
-    
-){
-    
-
-    
-
-    
-    companion object
-}
-
-/**
- * @suppress
- */
-public object FfiConverterTypeProviderCapabilities: FfiConverterRustBuffer<ProviderCapabilities> {
-    override fun read(buf: ByteBuffer): ProviderCapabilities {
-        return ProviderCapabilities(
-            FfiConverterBoolean.read(buf),
-            FfiConverterBoolean.read(buf),
-            FfiConverterBoolean.read(buf),
-            FfiConverterBoolean.read(buf),
-        )
-    }
-
-    override fun allocationSize(value: ProviderCapabilities) = (
-            FfiConverterBoolean.allocationSize(value.`supportsClientCapabilitiesRegistration`) +
-            FfiConverterBoolean.allocationSize(value.`supportsPlaybackProgressReporting`) +
-            FfiConverterBoolean.allocationSize(value.`supportsServerLyrics`) +
-            FfiConverterBoolean.allocationSize(value.`supportsInstantMix`)
-    )
-
-    override fun write(value: ProviderCapabilities, buf: ByteBuffer) {
-            FfiConverterBoolean.write(value.`supportsClientCapabilitiesRegistration`, buf)
-            FfiConverterBoolean.write(value.`supportsPlaybackProgressReporting`, buf)
-            FfiConverterBoolean.write(value.`supportsServerLyrics`, buf)
-            FfiConverterBoolean.write(value.`supportsInstantMix`, buf)
-    }
-}
-
-
-
-/**
  * Song representing a music track or audio file
  */
 data class Song (
@@ -2579,6 +2535,11 @@ public object FfiConverterTypeSong: FfiConverterRustBuffer<Song> {
  */
 data class SyncProgress (
     /**
+     * Identifies the current operation within this profile.
+     */
+    var `operationId`: kotlin.ULong
+    , 
+    /**
      * Current stage of sync (e.g., "Fetching songs", "Saving to database")
      */
     var `stage`: kotlin.String
@@ -2613,6 +2574,7 @@ data class SyncProgress (
 public object FfiConverterTypeSyncProgress: FfiConverterRustBuffer<SyncProgress> {
     override fun read(buf: ByteBuffer): SyncProgress {
         return SyncProgress(
+            FfiConverterULong.read(buf),
             FfiConverterString.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterUInt.read(buf),
@@ -2621,6 +2583,7 @@ public object FfiConverterTypeSyncProgress: FfiConverterRustBuffer<SyncProgress>
     }
 
     override fun allocationSize(value: SyncProgress) = (
+            FfiConverterULong.allocationSize(value.`operationId`) +
             FfiConverterString.allocationSize(value.`stage`) +
             FfiConverterUInt.allocationSize(value.`current`) +
             FfiConverterUInt.allocationSize(value.`total`) +
@@ -2628,6 +2591,7 @@ public object FfiConverterTypeSyncProgress: FfiConverterRustBuffer<SyncProgress>
     )
 
     override fun write(value: SyncProgress, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`operationId`, buf)
             FfiConverterString.write(value.`stage`, buf)
             FfiConverterUInt.write(value.`current`, buf)
             FfiConverterUInt.write(value.`total`, buf)
@@ -3947,6 +3911,9 @@ public object FfiConverterMapStringMapStringString: FfiConverterRustBuffer<Map<k
     }
     
 
+        /**
+         * Replace the complete cached song list, preserving artist/album metadata and sync state.
+         */
     @Throws(AppException::class) fun `cacheSongs`(`appDataDir`: kotlin.String, `songs`: List<Song>)
         = 
     uniffiRustCallWithError(AppException) { _status ->
@@ -4031,21 +3998,6 @@ public object FfiConverterMapStringMapStringString: FfiConverterRustBuffer<Map<k
     }
     
 
-    @Throws(AppException::class)
-    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
-     suspend fun `detectProvider`(`serverUrl`: kotlin.String) : BackendProvider {
-        return uniffiRustCallAsync(
-        UniffiLib.uniffi_aurelia_core_fn_func_detect_provider(FfiConverterString.lower(`serverUrl`),),
-        { future, callback, continuation -> UniffiLib.ffi_aurelia_core_rust_future_poll_rust_buffer(future, callback, continuation) },
-        { future, continuation -> UniffiLib.ffi_aurelia_core_rust_future_complete_rust_buffer(future, continuation) },
-        { future -> UniffiLib.ffi_aurelia_core_rust_future_free_rust_buffer(future) },
-        // lift function
-        { FfiConverterTypeBackendProvider.lift(it) },
-        // Error FFI converter
-        AppException.ErrorHandler,
-    )
-    }
-
         /**
          * Fetch a single album from server and cache it
          */
@@ -4082,6 +4034,9 @@ public object FfiConverterMapStringMapStringString: FfiConverterRustBuffer<Map<k
     )
     }
 
+        /**
+         * Fetch the complete song list and replace its cache without advancing library sync state.
+         */
     @Throws(AppException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
      suspend fun `fetchSongs`(`serverUrl`: kotlin.String, `token`: kotlin.String, `userId`: kotlin.String, `appDataDir`: kotlin.String) : List<Song> {
@@ -4237,16 +4192,6 @@ public object FfiConverterMapStringMapStringString: FfiConverterRustBuffer<Map<k
         AppException.ErrorHandler,
     )
     }
- fun `getProviderCapabilities`(`provider`: BackendProvider): ProviderCapabilities {
-            return FfiConverterTypeProviderCapabilities.lift(
-    uniffiRustCall() { _status ->
-    UniffiLib.uniffi_aurelia_core_fn_func_get_provider_capabilities(
-    
-        FfiConverterTypeBackendProvider.lower(`provider`),_status)
-}
-    )
-    }
-    
 
     @Throws(AppException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
@@ -4279,14 +4224,13 @@ public object FfiConverterMapStringMapStringString: FfiConverterRustBuffer<Map<k
     }
 
         /**
-         * Returns the current sync progress for UI polling.
-         * Updated after each page during a full sync; resets to default between syncs.
-         */ fun `getSyncProgress`(): SyncProgress {
+         * Returns progress for the specified profile and operation.
+         */ fun `getSyncProgress`(`appDataDir`: kotlin.String): SyncProgress {
             return FfiConverterTypeSyncProgress.lift(
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_aurelia_core_fn_func_get_sync_progress(
     
-        _status)
+        FfiConverterString.lower(`appDataDir`),_status)
 }
     )
     }
@@ -4381,6 +4325,54 @@ public object FfiConverterMapStringMapStringString: FfiConverterRustBuffer<Map<k
     )
     }
 
+    @Throws(AppException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `reportPlaybackProgressEvent`(`serverUrl`: kotlin.String, `token`: kotlin.String, `itemId`: kotlin.String, `positionTicks`: kotlin.Long, `isPaused`: kotlin.Boolean) {
+        return uniffiRustCallAsync(
+        UniffiLib.uniffi_aurelia_core_fn_func_report_playback_progress_event(FfiConverterString.lower(`serverUrl`),FfiConverterString.lower(`token`),FfiConverterString.lower(`itemId`),FfiConverterLong.lower(`positionTicks`),FfiConverterBoolean.lower(`isPaused`),),
+        { future, callback, continuation -> UniffiLib.ffi_aurelia_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.ffi_aurelia_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.ffi_aurelia_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        AppException.ErrorHandler,
+    )
+    }
+
+    @Throws(AppException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `reportPlaybackStartEvent`(`serverUrl`: kotlin.String, `token`: kotlin.String, `itemId`: kotlin.String, `positionTicks`: kotlin.Long?) {
+        return uniffiRustCallAsync(
+        UniffiLib.uniffi_aurelia_core_fn_func_report_playback_start_event(FfiConverterString.lower(`serverUrl`),FfiConverterString.lower(`token`),FfiConverterString.lower(`itemId`),FfiConverterOptionalLong.lower(`positionTicks`),),
+        { future, callback, continuation -> UniffiLib.ffi_aurelia_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.ffi_aurelia_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.ffi_aurelia_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        AppException.ErrorHandler,
+    )
+    }
+
+    @Throws(AppException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `reportPlaybackStopEvent`(`serverUrl`: kotlin.String, `token`: kotlin.String, `itemId`: kotlin.String, `positionTicks`: kotlin.Long) {
+        return uniffiRustCallAsync(
+        UniffiLib.uniffi_aurelia_core_fn_func_report_playback_stop_event(FfiConverterString.lower(`serverUrl`),FfiConverterString.lower(`token`),FfiConverterString.lower(`itemId`),FfiConverterLong.lower(`positionTicks`),),
+        { future, callback, continuation -> UniffiLib.ffi_aurelia_core_rust_future_poll_void(future, callback, continuation) },
+        { future, continuation -> UniffiLib.ffi_aurelia_core_rust_future_complete_void(future, continuation) },
+        { future -> UniffiLib.ffi_aurelia_core_rust_future_free_void(future) },
+        // lift function
+        { Unit },
+        
+        // Error FFI converter
+        AppException.ErrorHandler,
+    )
+    }
+
     @Throws(AppException::class) fun `saveCredentials`(`appDataDir`: kotlin.String, `credentials`: Credentials)
         = 
     uniffiRustCallWithError(AppException) { _status ->
@@ -4431,9 +4423,8 @@ public object FfiConverterMapStringMapStringString: FfiConverterRustBuffer<Map<k
     }
 
         /**
-         * Smart sync: paginated + incremental. Decides whether to do a full or delta sync
-         * based on the existing SyncState. Handles large libraries without OOM and
-         * resumes interrupted full syncs.
+         * Fetch a validated full or incremental update and commit it atomically.
+         * Concurrent callers for one profile share the same operation and result.
          */
     @Throws(AppException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
@@ -4452,6 +4443,7 @@ public object FfiConverterMapStringMapStringString: FfiConverterRustBuffer<Map<k
 
         /**
          * Sync only songs (fast startup). Artists/albums are fetched on-demand.
+         * Preserves the library sync checkpoint; returns whether the song cache was empty.
          */
     @Throws(AppException::class)
     @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")

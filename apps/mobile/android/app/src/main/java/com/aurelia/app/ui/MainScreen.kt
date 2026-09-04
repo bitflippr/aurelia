@@ -5,17 +5,17 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.rememberTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -65,7 +65,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -84,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -94,10 +94,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
-import com.aurelia.app.player.PlayerController
-import com.aurelia.app.storage.SessionStore
 import com.aurelia.app.audio.AudioManager
 import com.aurelia.app.audio.VisualizerStyle
+import com.aurelia.app.player.PlayerController
+import com.aurelia.app.storage.SessionStore
 import com.aurelia.app.ui.components.AlbumArt
 import com.aurelia.app.ui.components.AlbumArtStyle
 import com.aurelia.app.ui.components.AnimatedPlayPauseIcon
@@ -123,7 +123,12 @@ private val navItems =
     NavItem(Screen.Songs, "Songs", Icons.Filled.MusicNote, Icons.Outlined.MusicNote),
     NavItem(Screen.Albums, "Albums", Icons.Filled.Album, Icons.Outlined.Album),
     NavItem(Screen.Artists, "Artists", Icons.Filled.Person, Icons.Outlined.Person),
-    NavItem(Screen.Playlists, "Playlists", Icons.AutoMirrored.Filled.PlaylistPlay, Icons.AutoMirrored.Outlined.PlaylistPlay),
+    NavItem(
+      Screen.Playlists,
+      "Playlists",
+      Icons.AutoMirrored.Filled.PlaylistPlay,
+      Icons.AutoMirrored.Outlined.PlaylistPlay,
+    ),
     NavItem(Screen.Search, "Search", Icons.Filled.Search, Icons.Outlined.Search),
   )
 
@@ -137,23 +142,27 @@ fun MainScreen(
   val navController = rememberNavController()
 
   // HomeViewModel hoisted here to survive tab switches
-  val homeViewModel: HomeViewModel = viewModel(
-    factory = remember { viewModelFactory { HomeViewModel(sessionStore, playerController) } },
-  )
+  val homeViewModel: HomeViewModel =
+    viewModel(
+      factory = remember { viewModelFactory { HomeViewModel(sessionStore, playerController) } },
+    )
 
   // SettingsViewModel hoisted here to survive tab switches
-  val settingsViewModel: SettingsViewModel = viewModel(
-    factory = remember { viewModelFactory { SettingsViewModel(sessionStore) } },
-  )
+  val settingsViewModel: SettingsViewModel =
+    viewModel(
+      factory = remember { viewModelFactory { SettingsViewModel(sessionStore) } },
+    )
 
   // PlaylistViewModel hoisted here to survive tab switches
-  val playlistViewModel: PlaylistViewModel = viewModel(
-    factory = remember { viewModelFactory { PlaylistViewModel(sessionStore, playerController) } },
-  )
+  val playlistViewModel: PlaylistViewModel =
+    viewModel(
+      factory = remember { viewModelFactory { PlaylistViewModel(sessionStore, playerController) } },
+    )
 
-  val libraryViewModel: LibraryViewModel = viewModel(
-    factory = remember { viewModelFactory { LibraryViewModel(sessionStore, playerController) } },
-  )
+  val libraryViewModel: LibraryViewModel =
+    viewModel(
+      factory = remember { viewModelFactory { LibraryViewModel(sessionStore, playerController) } },
+    )
   val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
   val scope = rememberCoroutineScope()
 
@@ -296,13 +305,12 @@ fun MainScreen(
     }
 
     // 1. SCAFFOLD / CONTENT AREA
-	        Box(
-	          modifier =
-	            Modifier
+    Box(
+      modifier =
+        Modifier
           .fillMaxSize()
           .background(MaterialTheme.colorScheme.background),
     ) {
-
       NavHost(
         navController = navController,
         startDestination = Screen.Home,
@@ -310,7 +318,7 @@ fun MainScreen(
         enterTransition = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(400)) },
         exitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Start, tween(400)) },
         popEnterTransition = { slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(400)) },
-        popExitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(400)) }
+        popExitTransition = { slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.End, tween(400)) },
       ) {
         // --- TABS ---
         composable<Screen.Home> {
@@ -439,9 +447,10 @@ fun MainScreen(
 
       // Show bottom bar on all screens
       Column(
-        modifier = Modifier
-          .align(Alignment.BottomCenter)
-          .fillMaxWidth()
+        modifier =
+          Modifier
+            .align(Alignment.BottomCenter)
+            .fillMaxWidth(),
       ) {
         BottomNavBar(
           items = navItems,
@@ -488,8 +497,7 @@ fun MainScreen(
                   bottomStart = sheetBottomCornerRadius,
                   bottomEnd = sheetBottomCornerRadius,
                 )
-            }
-            .background(
+            }.background(
               color = playerSurfaceColor,
               shape =
                 RoundedCornerShape(
@@ -498,8 +506,7 @@ fun MainScreen(
                   bottomStart = sheetBottomCornerRadius,
                   bottomEnd = sheetBottomCornerRadius,
                 ),
-            )
-            .zIndex(1f),
+            ).zIndex(1f),
       ) {
         val nowPlaying = libraryState.nowPlaying ?: return@Box
         val sharedContentKey =
@@ -685,8 +692,7 @@ private fun RowScope.BottomNavItem(
           indication = null,
           role = Role.Tab,
           onClick = onClick,
-        )
-        .padding(vertical = 6.dp),
+        ).padding(vertical = 6.dp),
     horizontalAlignment = Alignment.CenterHorizontally,
     verticalArrangement = Arrangement.Center,
   ) {
@@ -749,10 +755,16 @@ fun MiniPlayerBar(
   val visualizerState by AudioManager.visualizerState.collectAsStateWithLifecycle()
   val visualizerEnabled = remember(sessionStore) { sessionStore?.getVisualizerEnabled() ?: false }
   val visualizerStyleName = remember(sessionStore) { sessionStore?.getVisualizerStyle() ?: "BARS" }
-  val visualizerStyle = remember(visualizerStyleName) {
-    try { VisualizerStyle.valueOf(visualizerStyleName) } catch (_: Exception) { VisualizerStyle.BARS }
-  }
-  val shouldShowVisualizer = visualizerEnabled && visualizerState.enabled && isPlaying && visualizerState.frequencyData.isNotEmpty()
+  val visualizerStyle =
+    remember(visualizerStyleName) {
+      try {
+        VisualizerStyle.valueOf(visualizerStyleName)
+      } catch (_: Exception) {
+        VisualizerStyle.BARS
+      }
+    }
+  val shouldShowVisualizer =
+    visualizerEnabled && visualizerState.enabled && isPlaying && visualizerState.frequencyData.isNotEmpty()
 
   Box(
     modifier =
@@ -775,21 +787,20 @@ fun MiniPlayerBar(
               netDrag = 0f
             },
           )
-        }
-        .height(MiniPlayerHeight)
-        ,
+        }.height(MiniPlayerHeight),
   ) {
     AnimatedVisibility(
       visible = shouldShowVisualizer,
       enter = fadeIn(animationSpec = tween(250)),
       exit = fadeOut(animationSpec = tween(250)),
     ) {
-        AudioVisualizer(
-          frequencyData = visualizerState.frequencyData,
-          timeDomainData = visualizerState.waveform,
-          style = visualizerStyle,
-          accentColor = colors.primary,
-          modifier = Modifier
+      AudioVisualizer(
+        frequencyData = visualizerState.frequencyData,
+        timeDomainData = visualizerState.waveform,
+        style = visualizerStyle,
+        accentColor = colors.primary,
+        modifier =
+          Modifier
             .fillMaxSize()
             .graphicsLayer { alpha = 0.25f },
         boost = 0.82f,
@@ -830,8 +841,7 @@ fun MiniPlayerBar(
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
                 key = playerSharedKey(sharedContentKey, "artwork"),
-              )
-              .size(44.dp)
+              ).size(44.dp)
               .clickable(
                 enabled = !albumId.isNullOrBlank(),
                 onClick = {
@@ -881,8 +891,7 @@ fun MiniPlayerBar(
                   sharedTransitionScope = sharedTransitionScope,
                   animatedVisibilityScope = animatedVisibilityScope,
                   key = playerSharedKey(sharedContentKey, "artist"),
-                )
-                .clickable(
+                ).clickable(
                   enabled = !artistId.isNullOrBlank(),
                   onClick = {
                     artistId?.let { id ->
@@ -903,8 +912,7 @@ fun MiniPlayerBar(
               sharedTransitionScope = sharedTransitionScope,
               animatedVisibilityScope = animatedVisibilityScope,
               key = playerSharedKey(sharedContentKey, "previous"),
-            )
-            .size(36.dp)
+            ).size(36.dp)
             .clip(CircleShape)
             .background(colors.primary.copy(alpha = if (hasPrevious) 0.2f else 0.08f))
             .then(
@@ -937,8 +945,7 @@ fun MiniPlayerBar(
               sharedTransitionScope = sharedTransitionScope,
               animatedVisibilityScope = animatedVisibilityScope,
               key = playerSharedKey(sharedContentKey, "play-pause"),
-            )
-            .size(36.dp)
+            ).size(36.dp)
             .clip(CircleShape)
             .background(colors.primary)
             .then(
@@ -978,8 +985,7 @@ fun MiniPlayerBar(
               sharedTransitionScope = sharedTransitionScope,
               animatedVisibilityScope = animatedVisibilityScope,
               key = playerSharedKey(sharedContentKey, "next"),
-            )
-            .size(36.dp)
+            ).size(36.dp)
             .clip(CircleShape)
             .background(colors.primary.copy(alpha = if (hasNext) 0.2f else 0.08f))
             .then(

@@ -3,12 +3,17 @@ import java.util.Properties
 plugins {
   id("com.android.application")
   id("org.jetbrains.kotlin.plugin.compose") version "2.3.0"
-  id("aurelia.compose")
   id("org.jetbrains.kotlin.plugin.serialization") version "2.3.0"
   id("org.jlleitschuh.gradle.ktlint")
 }
 
 fun environmentValue(name: String): String? = providers.environmentVariable(name).orNull?.takeIf { it.isNotBlank() }
+
+ktlint {
+  filter {
+    exclude("**/uniffi/**")
+  }
+}
 
 val configuredVersionCode = environmentValue("AURELIA_VERSION_CODE")
 val appVersionCode =
@@ -41,10 +46,6 @@ android {
 
   buildFeatures {
     compose = true
-  }
-
-  composeOptions {
-    kotlinCompilerExtensionVersion = "1.5.15"
   }
 
   compileOptions {
@@ -95,27 +96,38 @@ val projectRoot: String by lazy {
   file("$rootDir/../../..").canonicalPath
 }
 
+val rustInputs =
+  files(
+    "$projectRoot/Cargo.toml",
+    "$projectRoot/Cargo.lock",
+    "$projectRoot/flake.lock",
+    fileTree("$projectRoot/crates") {
+      include("**/*.rs", "**/Cargo.toml", "**/*.udl", "**/uniffi.toml")
+      exclude("**/target/**")
+    },
+  )
+val hostLibraryName =
+  when {
+    System.getProperty("os.name").startsWith("Windows") -> "aurelia_core.dll"
+    System.getProperty("os.name") == "Mac OS X" -> "libaurelia_core.dylib"
+    else -> "libaurelia_core.so"
+  }
+val hostLibrary = file("$projectRoot/target/debug/$hostLibraryName")
+
 tasks.register<Exec>("buildRustHost") {
+  inputs.files(rustInputs)
+  outputs.file(hostLibrary)
   workingDir = file(projectRoot)
   commandLine("cargo", "build", "-p", "aurelia-core")
 }
 
 tasks.register<Exec>("generateUniffiBindings") {
-  val libName =
-    if (org.gradle.internal.os.OperatingSystem
-        .current()
-        .isWindows
-    ) {
-      "aurelia_core.dll"
-    } else if (org.gradle.internal.os.OperatingSystem
-        .current()
-        .isMacOsX
-    ) {
-      "libaurelia_core.dylib"
-    } else {
-      "libaurelia_core.so"
-    }
   workingDir = file(projectRoot)
+  inputs.files(rustInputs, hostLibrary, file("src/main/java/uniffi/aurelia_core/uniffi.toml"))
+  outputs.files(
+    file("src/main/java/uniffi/aurelia_core/aurelia_core.kt"),
+    file("src/main/java/uniffi/aurelia_lyrics/aurelia_lyrics.kt"),
+  )
   commandLine(
     "cargo",
     "run",
@@ -124,7 +136,7 @@ tasks.register<Exec>("generateUniffiBindings") {
     "--",
     "generate",
     "--library",
-    "target/debug/$libName",
+    hostLibrary.absolutePath,
     "--language",
     "kotlin",
     "--config",
@@ -151,6 +163,12 @@ tasks.register<Exec>("buildRustAndroid") {
       )
 
   environment("ANDROID_NDK_HOME", ndkDir)
+  inputs.files(rustInputs)
+  inputs.property("ndkDir", ndkDir)
+  outputs.files(
+    file("src/main/jniLibs/arm64-v8a/libaurelia_core.so"),
+    file("src/main/jniLibs/x86_64/libaurelia_core.so"),
+  )
   workingDir = file(projectRoot)
   commandLine(
     "cargo",
@@ -168,24 +186,8 @@ tasks.register<Exec>("buildRustAndroid") {
   )
 }
 
-tasks.register("copyUniffiLibs") {
-  dependsOn("buildRustAndroid")
-  doLast {
-    val archs = listOf("arm64-v8a", "x86_64")
-    archs.forEach { arch ->
-      val srcFile = file("src/main/jniLibs/$arch/libaurelia_core.so")
-      // The library name must match what UniFFI bindings expect: "aurelia_core"
-      // which translates to "libaurelia_core.so" on Android
-      // Keep the original filename - do not rename it
-      if (!srcFile.exists()) {
-        throw GradleException("Rust library not found: ${srcFile.absolutePath}. Run 'cargo ndk' build first.")
-      }
-    }
-  }
-}
-
 tasks.named("preBuild") {
-  dependsOn("generateUniffiBindings", "copyUniffiLibs")
+  dependsOn("generateUniffiBindings", "buildRustAndroid")
 }
 
 dependencies {
@@ -222,6 +224,8 @@ dependencies {
   debugImplementation("androidx.compose.ui:ui-tooling")
 
   testImplementation("junit:junit:4.13.2")
+  testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+  testImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
   androidTestImplementation("androidx.test.ext:junit:1.2.1")
   androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
   androidTestImplementation("androidx.compose.ui:ui-test-junit4")

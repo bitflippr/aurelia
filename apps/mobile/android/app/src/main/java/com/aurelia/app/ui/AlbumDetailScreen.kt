@@ -4,7 +4,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -19,57 +18,48 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import coil.request.ImageRequest
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.aurelia.app.player.PlayerController
-
 import com.aurelia.app.storage.SessionStore
-import com.aurelia.app.ui.components.BottomBarDimensions
 import com.aurelia.app.ui.components.ActionButtonRow
+import com.aurelia.app.ui.components.BottomBarDimensions
 import com.aurelia.app.ui.components.DetailHeroGradient
 import com.aurelia.app.ui.components.PlaylistPickerDialog
 import com.aurelia.app.ui.components.SongContextMenu
 import com.aurelia.app.ui.components.rememberContextMenuState
 import com.aurelia.app.ui.navigation.Screen
 import com.aurelia.app.ui.theme.SquircleShape
+import com.aurelia.app.ui.theme.rememberGoogleSansFlexWideFont
 import com.aurelia.app.utils.formatDuration
 import com.aurelia.app.utils.optimizedArtworkUrl
-import com.aurelia.app.ui.theme.rememberGoogleSansFlexWideFont
 import uniffi.aurelia_core.Song
 
 @Composable
@@ -100,38 +90,41 @@ fun AlbumDetailScreen(
     remember(state.songs, albumId) {
       state.songs
         .filter { it.albumId == albumId }
-        .sortedWith(compareBy(
-          { it.discNumber ?: 1 },  // Sort by disc number first
-          { it.trackNumber ?: Int.MAX_VALUE }  // Then by track number
-        ))
+        .sortedWith(
+          compareBy(
+            { it.discNumber ?: 1 }, // Sort by disc number first
+            { it.trackNumber ?: Int.MAX_VALUE }, // Then by track number
+          ),
+        )
     }
 
   // Check if album has multiple discs
   val hasMultipleDiscs = albumSongs.map { it.discNumber ?: 1 }.distinct().size > 1
 
   // Build list items with disc headers
-  val listItems = remember(albumSongs, hasMultipleDiscs) {
-    if (!hasMultipleDiscs) {
-      // No disc headers needed
-      albumSongs.map { ListItem.SongItem(it) }
-    } else {
-      // Insert disc headers
-      val items = mutableListOf<ListItem>()
-      var currentDisc: Int? = null
-      var songIndex = 0
+  val listItems =
+    remember(albumSongs, hasMultipleDiscs) {
+      if (!hasMultipleDiscs) {
+        // No disc headers needed
+        albumSongs.map { ListItem.SongItem(it) }
+      } else {
+        // Insert disc headers
+        val items = mutableListOf<ListItem>()
+        var currentDisc: Int? = null
+        var songIndex = 0
 
-      for (song in albumSongs) {
-        val songDisc = song.discNumber ?: 1
-        if (songDisc != currentDisc) {
-          items.add(ListItem.DiscHeader(songDisc))
-          currentDisc = songDisc
+        for (song in albumSongs) {
+          val songDisc = song.discNumber ?: 1
+          if (songDisc != currentDisc) {
+            items.add(ListItem.DiscHeader(songDisc))
+            currentDisc = songDisc
+          }
+          items.add(ListItem.SongItem(song, songIndex))
+          songIndex++
         }
-        items.add(ListItem.SongItem(song, songIndex))
-        songIndex++
+        items
       }
-      items
     }
-  }
 
   val albumArtUrl = albumSongs.firstOrNull()?.albumArtUrl
   val artistName = albumSongs.firstOrNull()?.artists?.joinToString(", ") ?: "Unknown Artist"
@@ -204,11 +197,13 @@ fun AlbumDetailScreen(
               // Album art is displayed at 240dp, 300px is plenty
               val artworkSize = with(LocalDensity.current) { 300.dp.toPx().toInt() }
               AsyncImage(
-                model = ImageRequest.Builder(context)
-                  .data(optimizedArtworkUrl(albumArtUrl, artworkSize))
-                  .crossfade(true)
-                  .size(artworkSize)
-                  .build(),
+                model =
+                  ImageRequest
+                    .Builder(context)
+                    .data(optimizedArtworkUrl(albumArtUrl, artworkSize))
+                    .crossfade(true)
+                    .size(artworkSize)
+                    .build(),
                 contentDescription = albumName,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
@@ -221,11 +216,12 @@ fun AlbumDetailScreen(
           // Album name with display font for impact
           Text(
             text = albumName,
-            style = MaterialTheme.typography.headlineLarge.copy(
-              fontFamily = wideFont,
-              fontSize = 32.sp,
-              lineHeight = 40.sp,
-            ),
+            style =
+              MaterialTheme.typography.headlineLarge.copy(
+                fontFamily = wideFont,
+                fontSize = 32.sp,
+                lineHeight = 40.sp,
+              ),
             fontWeight = FontWeight.Black,
             color = colors.onPrimaryContainer,
             maxLines = 2,
@@ -302,9 +298,10 @@ fun AlbumDetailScreen(
               style = MaterialTheme.typography.titleSmall,
               fontWeight = FontWeight.SemiBold,
               color = colors.onSurfaceVariant,
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+              modifier =
+                Modifier
+                  .fillMaxWidth()
+                  .padding(horizontal = 16.dp, vertical = 8.dp),
             )
           }
           is ListItem.SongItem -> {
@@ -409,7 +406,7 @@ private fun AlbumSongItem(
   val shape = if (isCurrentSong) RoundedCornerShape(16.dp) else RoundedCornerShape(0.dp)
 
   Box(
-    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
   ) {
     Surface(
       modifier =
@@ -508,6 +505,6 @@ private fun calculateTotalDuration(songs: List<Song>): String {
   return if (hours > 0) {
     "${hours}h ${minutes}m"
   } else {
-    "${minutes} min"
+    "$minutes min"
   }
 }

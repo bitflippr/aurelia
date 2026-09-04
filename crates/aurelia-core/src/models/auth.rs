@@ -14,16 +14,6 @@ pub const fn default_backend_provider() -> BackendProvider {
     BackendProvider::Jellyfin
 }
 
-/// Provider capabilities for feature gating.
-#[derive(Serialize, Deserialize, Debug, Clone, uniffi::Record)]
-#[serde(rename_all = "camelCase")]
-pub struct ProviderCapabilities {
-    pub supports_client_capabilities_registration: bool,
-    pub supports_playback_progress_reporting: bool,
-    pub supports_server_lyrics: bool,
-    pub supports_instant_mix: bool,
-}
-
 /// Authentication request payload.
 #[derive(Serialize, Deserialize, Debug, Clone, uniffi::Record)]
 pub struct AuthRequest {

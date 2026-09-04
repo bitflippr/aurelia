@@ -1,10 +1,12 @@
 import AureliaCore
+import Combine
 import Foundation
 import Observation
 import os
 
+@MainActor
 @Observable
-final class LibraryViewModel: @unchecked Sendable {
+final class LibraryViewModel {
     var isLoading = false
     var songs: [Song] = []
     var error: String?
@@ -12,65 +14,17 @@ final class LibraryViewModel: @unchecked Sendable {
     private let sessionStore = SessionStore.shared
     private let logger = Logger(subsystem: "com.aurelia.app", category: "LibraryViewModel")
 
-    func loadLibrary() {
-        guard let creds = sessionStore.getCredentials(),
-              !creds.serverUrl.isEmpty, !creds.token.isEmpty, !creds.userId.isEmpty
-        else {
-            error = "Missing session data"
-            return
-        }
+    @ObservationIgnored private var librarySubscription: AnyCancellable?
 
-        isLoading = true
-        error = nil
-
-        let appDataDir = sessionStore.getAppDataDir() ?? ""
-        let shouldRefresh = sessionStore.shouldRefreshLibrary()
-
-        Task.detached { [self] in
-            // Load cached first
-            var loadedCache = false
-            if !appDataDir.isEmpty {
-                do {
-                    let cached = try loadCachedSongs(appDataDir: appDataDir)
-                    if !cached.isEmpty {
-                        loadedCache = true
-                        await MainActor.run {
-                            self.songs = cached
-                            self.isLoading = false
-                        }
-                    }
-                } catch {
-                    logger.warning("Failed to load cached songs: \(error)")
-                }
-            }
-
-            if loadedCache, !shouldRefresh {
-                return
-            }
-
-            // Fetch fresh
-            do {
-                let freshSongs = try await fetchSongs(
-                    serverUrl: creds.serverUrl,
-                    token: creds.token,
-                    userId: creds.userId,
-                    appDataDir: appDataDir
-                )
-                await MainActor.run {
-                    self.songs = freshSongs
-                    self.isLoading = false
-                    self.sessionStore.markLibraryRefreshed()
-                }
-            } catch {
-                if await !AuthInterceptor.shared.handlePotentialAuthError(error) {
-                    await MainActor.run {
-                        self.isLoading = false
-                        self.error = error.localizedDescription
-                    }
-                }
-            }
+    init() {
+        librarySubscription = LibraryStore.shared.$snapshot.sink { [weak self] snapshot in
+            self?.songs = snapshot.songs ?? []
+            self?.isLoading = snapshot.isLoading
+            self?.error = snapshot.error
         }
     }
+
+    func loadLibrary() { LibraryStore.shared.ensureLoaded() }
 
     func playFromList(_ songId: String, playerController: AudioPlayerController) {
         guard let serverUrl = sessionStore.serverUrl, let token = sessionStore.token else { return }

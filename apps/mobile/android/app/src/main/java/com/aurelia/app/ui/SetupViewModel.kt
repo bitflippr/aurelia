@@ -4,7 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aurelia.app.auth.AuthInterceptor
 import com.aurelia.app.storage.SessionStore
+import com.aurelia.app.utils.validateSession
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,56 +34,65 @@ class SetupViewModel(
   val state: StateFlow<SetupState> = _state.asStateFlow()
 
   fun syncLibrary() {
-    val serverUrl = sessionStore.getServerUrl()
-    val userId = sessionStore.getUserId()
-    val token = sessionStore.getToken()
-    val appDataDir = sessionStore.getAppDataDir()
-
-    if (serverUrl.isNullOrBlank() || userId.isNullOrBlank() || token.isNullOrBlank()) {
+    if (_state.value.isSyncing) return
+    val session = validateSession(sessionStore, requireAppDataDir = true)
+    if (session == null) {
       _state.value = SetupState(error = "Missing session data")
       return
     }
+    val serverUrl = session.serverUrl
+    val userId = session.userId
+    val token = session.token
+    val appDataDir = session.appDataDir.orEmpty()
 
     _state.value = SetupState(isSyncing = true)
 
     // Launch the sync operation
     viewModelScope.launch(Dispatchers.IO) {
-      try {
-        // Start polling progress in a parallel job
-        val pollingJob = launch {
+      val pollingJob =
+        launch {
           while (isActive) {
             delay(500)
             try {
-              val progress = getSyncProgress()
-              _state.value = _state.value.copy(
-                stage = progress.stage,
-                current = progress.current.toInt(),
-                total = progress.total.toInt(),
-                isComplete = progress.isComplete
-              )
+              val progress = getSyncProgress(appDataDir)
+              _state.value =
+                _state.value.copy(
+                  stage = progress.stage,
+                  current = progress.current.toInt(),
+                  total = progress.total.toInt(),
+                  isComplete = progress.isComplete,
+                )
+            } catch (e: CancellationException) {
+              throw e
             } catch (_: Exception) {
               // Ignore polling errors
             }
           }
         }
 
-        // Run smart sync (paginated + incremental)
-        syncLibrarySmart(serverUrl, token, userId, appDataDir ?: "")
-        
-        pollingJob.cancel()
-        
-        _state.value = SetupState(
-          isSyncing = false,
-          stage = "Complete",
-          isComplete = true,
-          isSuccess = true
-        )
+      try {
+        try {
+          syncLibrarySmart(serverUrl, token, userId, appDataDir)
+        } finally {
+          pollingJob.cancelAndJoin()
+        }
+
+        _state.value =
+          SetupState(
+            isSyncing = false,
+            stage = "Complete",
+            isComplete = true,
+            isSuccess = true,
+          )
+      } catch (e: CancellationException) {
+        throw e
       } catch (e: Exception) {
         if (!AuthInterceptor.handlePotentialAuthError(e)) {
-          _state.value = SetupState(
-            isSyncing = false,
-            error = e.message ?: "Synchronization failed"
-          )
+          _state.value =
+            SetupState(
+              isSyncing = false,
+              error = e.message ?: "Synchronization failed",
+            )
         }
       }
     }

@@ -25,12 +25,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import uniffi.aurelia_core.AppException
 import uniffi.aurelia_core.PlaylistCreateData
+import uniffi.aurelia_core.Song
 import uniffi.aurelia_core.addPlaylistItems
 import uniffi.aurelia_core.createPlaylist
 import uniffi.aurelia_core.deletePlaylist
 import uniffi.aurelia_core.getPlaylistItems
 import uniffi.aurelia_core.getPlaylists
-import uniffi.aurelia_core.Song
 import java.io.File
 
 class PlaylistViewModel(
@@ -65,21 +65,22 @@ class PlaylistViewModel(
 
     mutableState.update { it.copy(isLoading = true, error = null) }
 
-    loadJob = viewModelScope.launch(Dispatchers.IO) {
-      try {
-        val playlists = getPlaylists(session.serverUrl, session.token, session.userId)
-        mutableState.update { it.copy(isLoading = false, playlists = playlists) }
-        lastLoadedAtMs = SystemClock.elapsedRealtime()
-      } catch (error: AppException) {
-        if (!AuthInterceptor.handlePotentialAuthError(error.message)) {
-          mutableState.update { it.copy(isLoading = false, error = error.message ?: "Failed to load playlists") }
-        }
-      } catch (error: Exception) {
-        if (!AuthInterceptor.handlePotentialAuthError(error)) {
-          mutableState.update { it.copy(isLoading = false, error = "Failed to load playlists") }
+    loadJob =
+      viewModelScope.launch(Dispatchers.IO) {
+        try {
+          val playlists = getPlaylists(session.serverUrl, session.token, session.userId)
+          mutableState.update { it.copy(isLoading = false, playlists = playlists) }
+          lastLoadedAtMs = SystemClock.elapsedRealtime()
+        } catch (error: AppException) {
+          if (!AuthInterceptor.handlePotentialAuthError(error)) {
+            mutableState.update { it.copy(isLoading = false, error = error.message ?: "Failed to load playlists") }
+          }
+        } catch (error: Exception) {
+          if (!AuthInterceptor.handlePotentialAuthError(error)) {
+            mutableState.update { it.copy(isLoading = false, error = "Failed to load playlists") }
+          }
         }
       }
-    }
   }
 
   fun loadPlaylists() {
@@ -116,16 +117,18 @@ class PlaylistViewModel(
 
     viewModelScope.launch(Dispatchers.IO) {
       try {
-        val downloadedFile = aiModelDownloader.download(model, File(modelsDir)) { bytesRead, totalBytes ->
-          mutableSmartPlaylistState.update {
-            it.copy(modelDownload = AiModelDownloadState.Downloading(model.name, bytesRead, totalBytes))
+        val downloadedFile =
+          aiModelDownloader.download(model, File(modelsDir)) { bytesRead, totalBytes ->
+            mutableSmartPlaylistState.update {
+              it.copy(modelDownload = AiModelDownloadState.Downloading(model.name, bytesRead, totalBytes))
+            }
           }
-        }
         sessionStore.setOnDeviceAiModelPath(downloadedFile.absolutePath)
         mutableSmartPlaylistState.update {
           it.copy(modelDownload = AiModelDownloadState.Ready(downloadedFile.absolutePath))
         }
       } catch (error: Exception) {
+        if (error is kotlinx.coroutines.CancellationException) throw error
         Log.w("PlaylistViewModel", "Failed to download AI model", error)
         mutableSmartPlaylistState.update {
           it.copy(modelDownload = AiModelDownloadState.Error(error.message ?: "Model download failed"))
@@ -209,7 +212,7 @@ class PlaylistViewModel(
           )
         }
       } catch (error: AppException) {
-        if (!AuthInterceptor.handlePotentialAuthError(error.message)) {
+        if (!AuthInterceptor.handlePotentialAuthError(error)) {
           mutableDetailState.update { it.copy(isLoading = false, error = error.message ?: "Failed to load playlist") }
         }
       } catch (error: Exception) {
@@ -273,14 +276,16 @@ class PlaylistViewModel(
         val candidates = SmartPlaylistPlanner.prepareCandidates(librarySongs, request)
         val modelPath = sessionStore.getOnDeviceAiModelPath()
         val cacheDir = sessionStore.getOnDeviceAiCacheDir()
-        val preview = onDevicePlaylistGenerator.generate(
-          request = request,
-          candidates = candidates,
-          runtimeConfig = GemmaRuntimeConfig(
-            modelPath = modelPath,
-            cacheDir = cacheDir,
-          ),
-        )
+        val preview =
+          onDevicePlaylistGenerator.generate(
+            request = request,
+            candidates = candidates,
+            runtimeConfig =
+              GemmaRuntimeConfig(
+                modelPath = modelPath,
+                cacheDir = cacheDir,
+              ),
+          )
         mutableSmartPlaylistState.update {
           it.copy(generation = AiGenerationState.Preview(preview))
         }
@@ -302,8 +307,15 @@ class PlaylistViewModel(
   }
 
   fun saveSmartPlaylist(preview: SmartPlaylistPreview) {
-    val playlistName = preview.name.trim().ifBlank { "Smart Playlist" }.take(80)
-    createPlaylist(playlistName, preview.songs.mapNotNull { runCatching { it.id }.getOrNull() }.filter { it.isNotBlank() })
+    val playlistName =
+      preview.name
+        .trim()
+        .ifBlank { "Smart Playlist" }
+        .take(80)
+    createPlaylist(
+      playlistName,
+      preview.songs.mapNotNull { runCatching { it.id }.getOrNull() }.filter { it.isNotBlank() },
+    )
   }
 
   fun clearSmartPlaylistGeneration() {

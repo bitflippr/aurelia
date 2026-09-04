@@ -18,7 +18,13 @@ class AutoCatalogIndexTest {
       )
 
     assertEquals(listOf("Alpha", "Beta"), index.albums.map { it.name })
-    assertEquals(listOf("track-1", "track-3"), index.albums.first().songs.map { it.id })
+    assertEquals(
+      listOf("track-1", "track-3"),
+      index.albums
+        .first()
+        .songs
+        .map { it.id },
+    )
   }
 
   @Test
@@ -35,7 +41,13 @@ class AutoCatalogIndexTest {
 
     assertEquals(listOf("Alice", "Bob"), index.artists.map { it.name })
     assertEquals(listOf("artist-a", "artist-b"), index.artists.map { it.id })
-    assertEquals(listOf("duet"), index.artists.last().songs.map { it.id })
+    assertEquals(
+      listOf("duet"),
+      index.artists
+        .last()
+        .songs
+        .map { it.id },
+    )
   }
 
   @Test

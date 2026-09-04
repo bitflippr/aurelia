@@ -50,7 +50,10 @@ class PlayerController(
 
   private val controllerListener =
     object : Player.Listener {
-      override fun onEvents(player: Player, events: Player.Events) {
+      override fun onEvents(
+        player: Player,
+        events: Player.Events,
+      ) {
         val controller = mediaController ?: return
         val wasConnected = _isConnected.value
         val nowConnected = controller.isConnected
@@ -181,14 +184,22 @@ class PlayerController(
     }
   }
 
-  fun addToQueue(song: Song, serverUrl: String, token: String) {
+  fun addToQueue(
+    song: Song,
+    serverUrl: String,
+    token: String,
+  ) {
     songByMediaId[song.id] = song
     withController { controller ->
       controller.addMediaItem(buildMediaItem(song, serverUrl, token))
     }
   }
 
-  fun playNext(song: Song, serverUrl: String, token: String) {
+  fun playNext(
+    song: Song,
+    serverUrl: String,
+    token: String,
+  ) {
     songByMediaId[song.id] = song
     withController { controller ->
       val insertIndex = controller.currentMediaItemIndex + 1
@@ -196,7 +207,11 @@ class PlayerController(
     }
   }
 
-  fun play(song: Song, serverUrl: String, token: String) {
+  fun play(
+    song: Song,
+    serverUrl: String,
+    token: String,
+  ) {
     songByMediaId[song.id] = song
     withController { controller ->
       controller.setMediaItem(buildMediaItem(song, serverUrl, token))
@@ -213,6 +228,9 @@ class PlayerController(
 
   fun resume() {
     withController { controller ->
+      if (controller.playbackState == Player.STATE_ENDED) {
+        controller.seekToDefaultPosition()
+      }
       controller.playWhenReady = true
       if (controller.playbackState == Player.STATE_IDLE) {
         controller.prepare()
@@ -301,7 +319,11 @@ class PlayerController(
     _snapshots.value = PlayerSnapshot()
   }
 
-  private fun buildMediaItem(song: Song, serverUrl: String, token: String): MediaItem {
+  private fun buildMediaItem(
+    song: Song,
+    serverUrl: String,
+    token: String,
+  ): MediaItem {
     val uri = buildMobileStreamUrl(serverUrl, token, song.id, song.container)
     return AureliaMediaItems.playableSong(song, uri)
   }

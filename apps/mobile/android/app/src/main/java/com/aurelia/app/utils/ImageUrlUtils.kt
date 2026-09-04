@@ -25,11 +25,12 @@ fun optimizedArtworkUrl(
   val clampedWidth = targetWidthPx.coerceAtLeast(32)
   val clampedQuality = quality.coerceIn(40, 100)
 
-  val parsed = try {
-    Uri.parse(rawUrl)
-  } catch (_: Exception) {
-    return rawUrl
-  }
+  val parsed =
+    try {
+      Uri.parse(rawUrl)
+    } catch (_: Exception) {
+      return rawUrl
+    }
 
   val path = parsed.encodedPath ?: return rawUrl
   val isJellyfinImagePath = path.contains("/Items/") && path.contains("/Images/")

@@ -14,12 +14,12 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aurelia.app.storage.SessionStore
 import com.aurelia.app.ui.components.ArtistAvatar
 import com.aurelia.app.ui.components.BottomBarDimensions
@@ -51,38 +51,41 @@ fun ArtistsScreen(
   val token = remember { sessionStore.getToken() }
 
   // Group songs by artist (using artist ID)
-  val artists = remember(state.songs) {
-    val artistData =
-      mutableMapOf<String, Triple<String, MutableList<uniffi.aurelia_core.Song>, MutableSet<String>>>()
+  val artists =
+    remember(state.songs) {
+      val artistData =
+        mutableMapOf<String, Triple<String, MutableList<uniffi.aurelia_core.Song>, MutableSet<String>>>()
 
-    for (song in state.songs) {
-      val artistNames = song.artists ?: listOf("Unknown Artist")
-      val artistIds = song.artistIds ?: emptyList()
+      for (song in state.songs) {
+        val artistNames = song.artists ?: listOf("Unknown Artist")
+        val artistIds = song.artistIds ?: emptyList()
 
-      for ((index, artistName) in artistNames.withIndex()) {
-        val artistId = artistIds.getOrNull(index) ?: artistName // Fall back to name as ID
-        val data =
-          artistData.getOrPut(artistId) { Triple(artistName, mutableListOf(), mutableSetOf()) }
-        data.second.add(song)
-        song.albumId?.let { data.third.add(it) }
+        for ((index, artistName) in artistNames.withIndex()) {
+          val artistId = artistIds.getOrNull(index) ?: artistName // Fall back to name as ID
+          val data =
+            artistData.getOrPut(artistId) { Triple(artistName, mutableListOf(), mutableSetOf()) }
+          data.second.add(song)
+          song.albumId?.let { data.third.add(it) }
+        }
       }
+
+      artistData
+        .map { (id, data) ->
+          ArtistItem(
+            id = id,
+            name = data.first,
+            songCount = data.second.size,
+            albumCount = data.third.size,
+            imageUrl = jellyfinPrimaryImageUrl(serverUrl, id, token),
+          )
+        }.sortedBy { it.name.lowercase() }
     }
 
-    artistData.map { (id, data) ->
-      ArtistItem(
-        id = id,
-        name = data.first,
-        songCount = data.second.size,
-        albumCount = data.third.size,
-        imageUrl = jellyfinPrimaryImageUrl(serverUrl, id, token),
-      )
-    }.sortedBy { it.name.lowercase() }
-  }
-
   Column(
-    modifier = Modifier
-      .fillMaxSize()
-      .statusBarsPadding(),
+    modifier =
+      Modifier
+        .fillMaxSize()
+        .statusBarsPadding(),
   ) {
     when {
       state.isLoading -> {
@@ -106,12 +109,13 @@ fun ArtistsScreen(
       else -> {
         LazyColumn(
           modifier = Modifier.fillMaxSize(),
-          contentPadding = PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
-            top = 8.dp,
-            bottom = bottomPadding,
-          ),
+          contentPadding =
+            PaddingValues(
+              start = 16.dp,
+              end = 16.dp,
+              top = 8.dp,
+              bottom = bottomPadding,
+            ),
           verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
           item(key = "header") {

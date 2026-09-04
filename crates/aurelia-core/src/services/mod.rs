@@ -4,6 +4,7 @@
 //! like Jellyfin and `LrcLib`.
 
 pub mod jellyfin;
+pub mod library_sync;
 pub mod lrclib;
 
 pub use jellyfin::*;

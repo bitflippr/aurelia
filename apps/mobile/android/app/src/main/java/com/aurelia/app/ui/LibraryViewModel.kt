@@ -1,30 +1,23 @@
 package com.aurelia.app.ui
 
-import android.os.SystemClock
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aurelia.app.auth.AuthInterceptor
 import com.aurelia.app.player.PlayerController
 import com.aurelia.app.storage.SessionStore
-import com.aurelia.app.utils.buildSongIdCache
 import com.aurelia.app.utils.jellyfinPrimaryImageUrl
 import com.aurelia.app.utils.validateSession
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import uniffi.aurelia_core.AppException
-import uniffi.aurelia_core.fetchSongs
-import uniffi.aurelia_core.loadCachedSongs
 
 @OptIn(FlowPreview::class)
 class LibraryViewModel(
@@ -35,9 +28,6 @@ class LibraryViewModel(
   val state: StateFlow<LibraryState> = mutableState
 
   // Cache for song ID lookup - built once when songs load
-  private var songIdByTitleArtist: Map<Pair<String, String>, String> = emptyMap()
-  private var loadJob: Job? = null
-  private var lastLoadedAtMs: Long = 0L
   private val searchQuery = MutableStateFlow("")
   private val mutableSearchResults = MutableStateFlow<List<SearchResult>>(emptyList())
   val searchResults: StateFlow<List<SearchResult>> = mutableSearchResults
@@ -46,11 +36,21 @@ class LibraryViewModel(
 
   init {
     viewModelScope.launch {
+      sessionStore.library.snapshots.collect { library ->
+        library.error?.let { AuthInterceptor.handlePotentialAuthError(it) }
+        mutableState.update {
+          it.copy(songs = library.songs.orEmpty(), isLoading = library.isLoading, error = library.error?.message)
+        }
+      }
+    }
+    viewModelScope.launch {
       playerController.snapshots.collect { snapshot ->
         if (!nowPlayingMapper.shouldUpdate(snapshot)) return@collect
-        val (nowPlaying, songId) = nowPlayingMapper.mapToNowPlaying(
-          snapshot, songIdByTitleArtist, includeNavigation = true,
-        )
+        val (nowPlaying, songId) =
+          nowPlayingMapper.mapToNowPlaying(
+            snapshot,
+            includeNavigation = true,
+          )
         mutableState.update { it.copy(nowPlaying = nowPlaying, currentSongId = songId) }
       }
     }
@@ -61,8 +61,7 @@ class LibraryViewModel(
         mutableState.map { it.songs },
       ) { query, songs ->
         computeSearchResults(query, songs)
-      }
-        .flowOn(Dispatchers.Default)
+      }.flowOn(Dispatchers.Default)
         .collect { results ->
           mutableSearchResults.value = results
         }
@@ -70,47 +69,12 @@ class LibraryViewModel(
   }
 
   fun ensureLoaded(force: Boolean = false) {
-    if (!force && loadJob?.isActive == true) return
-    val hasSongs = mutableState.value.songs.isNotEmpty()
-    val isFresh = SystemClock.elapsedRealtime() - lastLoadedAtMs < LOAD_FRESHNESS_MS
-    if (!force && hasSongs && isFresh) return
-
     val session = validateSession(sessionStore)
     if (session == null) {
-      mutableState.update { it.copy(error = "Missing session data") }
+      mutableState.update { it.copy(isLoading = false, error = "Missing session data") }
       return
     }
-
-    mutableState.update { it.copy(isLoading = true, error = null) }
-
-    loadJob = viewModelScope.launch(Dispatchers.IO) {
-      if (!session.appDataDir.isNullOrBlank()) {
-        try {
-          val cachedSongs = loadCachedSongs(session.appDataDir)
-          if (cachedSongs.isNotEmpty()) {
-            songIdByTitleArtist = buildSongIdCache(cachedSongs)
-            mutableState.update { it.copy(songs = cachedSongs, isLoading = false) }
-          }
-        } catch (e: Exception) {
-          Log.w("LibraryViewModel", "Failed to load cached songs", e)
-        }
-      }
-
-      try {
-        val songs = fetchSongs(session.serverUrl, session.token, session.userId, session.appDataDir ?: "")
-        songIdByTitleArtist = buildSongIdCache(songs)
-        mutableState.update { it.copy(isLoading = false, songs = songs) }
-        lastLoadedAtMs = SystemClock.elapsedRealtime()
-      } catch (error: AppException) {
-        if (!AuthInterceptor.handlePotentialAuthError(error.message)) {
-          mutableState.update { it.copy(isLoading = false, error = error.message ?: "Failed to load") }
-        }
-      } catch (error: Exception) {
-        if (!AuthInterceptor.handlePotentialAuthError(error)) {
-          mutableState.update { it.copy(isLoading = false, error = "Failed to load") }
-        }
-      }
-    }
+    sessionStore.library.ensureLoaded(session, force)
   }
 
   fun loadLibrary() {
@@ -181,8 +145,7 @@ class LibraryViewModel(
           song.name.lowercase().contains(normalizedQuery) ||
             song.artists?.any { it.lowercase().contains(normalizedQuery) } == true ||
             song.album?.lowercase()?.contains(normalizedQuery) == true
-        }
-        .take(UiConstants.SEARCH_RESULTS_LIMIT)
+        }.take(UiConstants.SEARCH_RESULTS_LIMIT)
         .map { SearchResult.SongResult(it) }
         .toList()
 
@@ -194,8 +157,7 @@ class LibraryViewModel(
           song.albumId?.let { id ->
             Triple(id, song.album ?: "", song.albumArtUrl)
           }
-        }
-        .distinctBy { it.first }
+        }.distinctBy { it.first }
         .take(UiConstants.SEARCH_ALBUMS_LIMIT)
         .map { (id, name, artUrl) -> SearchResult.Album(id, name, "", artUrl) }
         .toList()
@@ -213,8 +175,7 @@ class LibraryViewModel(
               null
             }
           }
-        }
-        .groupBy { it.second }
+        }.groupBy { it.second }
         .map { (name, entries) ->
           val artistId = entries.firstOrNull()?.first
           SearchResult.Artist(
@@ -223,12 +184,10 @@ class LibraryViewModel(
             songCount = entries.size,
             imageUrl = jellyfinPrimaryImageUrl(sessionStore.getServerUrl(), artistId, sessionStore.getToken()),
           )
-        }
-        .take(UiConstants.SEARCH_ARTISTS_LIMIT)
+        }.take(UiConstants.SEARCH_ARTISTS_LIMIT)
 
     return artistResults + albumResults + songResults
   }
 }
 
-private const val LOAD_FRESHNESS_MS = 60_000L
 private const val SEARCH_DEBOUNCE_MS = 120L

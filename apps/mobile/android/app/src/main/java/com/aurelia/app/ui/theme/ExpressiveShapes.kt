@@ -24,13 +24,6 @@ import androidx.graphics.shapes.star
 import androidx.graphics.shapes.toPath
 import kotlin.math.min
 
-/**
- * Material 3 Expressive Shapes for Aurelia Home Screen
- *
- * These shapes create a playful, distinctive feel following M3E guidelines.
- * Each section uses a unique shape to aid visual recognition and add personality.
- */
-
 // =============================================================================
 // Pill Shape - Hero Card (Continue Listening)
 // =============================================================================
@@ -38,21 +31,22 @@ import kotlin.math.min
 /**
  * Stadium/Pill shape for the hero section - friendly and premium feel.
  */
-val HeroPillShape: Shape = object : Shape {
-  override fun createOutline(
-    size: Size,
-    layoutDirection: LayoutDirection,
-    density: Density
-  ): Outline {
-    val radius = min(size.width, size.height) / 2f
-    return Outline.Rounded(
-      RoundRect(
-        rect = Rect(0f, 0f, size.width, size.height),
-        cornerRadius = CornerRadius(radius, radius)
+val HeroPillShape: Shape =
+  object : Shape {
+    override fun createOutline(
+      size: Size,
+      layoutDirection: LayoutDirection,
+      density: Density,
+    ): Outline {
+      val radius = min(size.width, size.height) / 2f
+      return Outline.Rounded(
+        RoundRect(
+          rect = Rect(0f, 0f, size.width, size.height),
+          cornerRadius = CornerRadius(radius, radius),
+        ),
       )
-    )
+    }
   }
-}
 
 // =============================================================================
 // Cookie Shape - Quick Picks (9-sided wavy)
@@ -62,25 +56,27 @@ val HeroPillShape: Shape = object : Shape {
  * Creates a wavy cookie-like shape with soft, rounded edges.
  * Uses RoundedPolygon for smooth curve generation.
  */
-fun createCookieShape(smoothing: Float = 0.5f): Shape = object : Shape {
-  override fun createOutline(
-    size: Size,
-    layoutDirection: LayoutDirection,
-    density: Density
-  ): Outline {
-    val polygon = RoundedPolygon.pillStar(
-      numVerticesPerRadius = 9,
-      innerRadiusRatio = 0.88f,
-      rounding = CornerRounding(radius = 0.2f, smoothing = smoothing),
-    )
-    val path = polygon.toPath().asComposePath()
-    val matrix = android.graphics.Matrix()
-    matrix.setScale(size.width, size.height)
-    matrix.postTranslate(size.width / 2f, size.height / 2f)
-    path.transform(matrixFromValues(matrix.values()))
-    return Outline.Generic(path)
+fun createCookieShape(smoothing: Float = 0.5f): Shape =
+  object : Shape {
+    override fun createOutline(
+      size: Size,
+      layoutDirection: LayoutDirection,
+      density: Density,
+    ): Outline {
+      val polygon =
+        RoundedPolygon.pillStar(
+          numVerticesPerRadius = 9,
+          innerRadiusRatio = 0.88f,
+          rounding = CornerRounding(radius = 0.2f, smoothing = smoothing),
+        )
+      val path = polygon.toPath().asComposePath()
+      val matrix = android.graphics.Matrix()
+      matrix.setScale(size.width, size.height)
+      matrix.postTranslate(size.width / 2f, size.height / 2f)
+      path.transform(matrixFromValues(matrix.values()))
+      return Outline.Generic(path)
+    }
   }
-}
 
 /**
  * Cookie shape instance with default smoothing for Quick Picks.
@@ -95,25 +91,27 @@ val QuickPickCookieShape: Shape = createCookieShape(smoothing = 0.6f)
  * Creates a scalloped edge shape - badge-like feel for fresh content.
  * Uses a 12-pointed star with shallow points for subtle waviness.
  */
-fun createScallopShape(): Shape = object : Shape {
-  override fun createOutline(
-    size: Size,
-    layoutDirection: LayoutDirection,
-    density: Density
-  ): Outline {
-    val polygon = RoundedPolygon.star(
-      numVerticesPerRadius = 12,
-      innerRadius = 0.92f,
-      rounding = CornerRounding(radius = 0.15f, smoothing = 0.5f),
-    )
-    val path = polygon.toPath().asComposePath()
-    val matrix = android.graphics.Matrix()
-    matrix.setScale(size.width / 2f, size.height / 2f)
-    matrix.postTranslate(size.width / 2f, size.height / 2f)
-    path.transform(matrixFromValues(matrix.values()))
-    return Outline.Generic(path)
+fun createScallopShape(): Shape =
+  object : Shape {
+    override fun createOutline(
+      size: Size,
+      layoutDirection: LayoutDirection,
+      density: Density,
+    ): Outline {
+      val polygon =
+        RoundedPolygon.star(
+          numVerticesPerRadius = 12,
+          innerRadius = 0.92f,
+          rounding = CornerRounding(radius = 0.15f, smoothing = 0.5f),
+        )
+      val path = polygon.toPath().asComposePath()
+      val matrix = android.graphics.Matrix()
+      matrix.setScale(size.width / 2f, size.height / 2f)
+      matrix.postTranslate(size.width / 2f, size.height / 2f)
+      path.transform(matrixFromValues(matrix.values()))
+      return Outline.Generic(path)
+    }
   }
-}
 
 val RecentlyAddedScallopShape: Shape = createScallopShape()
 
@@ -124,25 +122,27 @@ val RecentlyAddedScallopShape: Shape = createScallopShape()
 /**
  * Creates a 4-leaf clover shape - organic, discovery/exploration vibe.
  */
-fun createCloverShape(): Shape = object : Shape {
-  override fun createOutline(
-    size: Size,
-    layoutDirection: LayoutDirection,
-    density: Density
-  ): Outline {
-    val polygon = RoundedPolygon.pillStar(
-      numVerticesPerRadius = 4,
-      innerRadiusRatio = 0.75f,
-      rounding = CornerRounding(radius = 0.3f, smoothing = 0.7f),
-    )
-    val path = polygon.toPath().asComposePath()
-    val matrix = android.graphics.Matrix()
-    matrix.setScale(size.width / 2f, size.height / 2f)
-    matrix.postTranslate(size.width / 2f, size.height / 2f)
-    path.transform(matrixFromValues(matrix.values()))
-    return Outline.Generic(path)
+fun createCloverShape(): Shape =
+  object : Shape {
+    override fun createOutline(
+      size: Size,
+      layoutDirection: LayoutDirection,
+      density: Density,
+    ): Outline {
+      val polygon =
+        RoundedPolygon.pillStar(
+          numVerticesPerRadius = 4,
+          innerRadiusRatio = 0.75f,
+          rounding = CornerRounding(radius = 0.3f, smoothing = 0.7f),
+        )
+      val path = polygon.toPath().asComposePath()
+      val matrix = android.graphics.Matrix()
+      matrix.setScale(size.width / 2f, size.height / 2f)
+      matrix.postTranslate(size.width / 2f, size.height / 2f)
+      path.transform(matrixFromValues(matrix.values()))
+      return Outline.Generic(path)
+    }
   }
-}
 
 val LibraryCloverShape: Shape = createCloverShape()
 
@@ -154,32 +154,33 @@ val LibraryCloverShape: Shape = createCloverShape()
  * Creates a squircle (superellipse) shape - softer than rounded rectangle.
  * Good default for cards that need less personality.
  */
-fun createSquircleShape(cornerRatio: Float = 0.2f): Shape = object : Shape {
-  override fun createOutline(
-    size: Size,
-    layoutDirection: LayoutDirection,
-    density: Density
-  ): Outline {
-    val path = Path()
-    val w = size.width
-    val h = size.height
-    val r = min(w, h) * cornerRatio
+fun createSquircleShape(cornerRatio: Float = 0.2f): Shape =
+  object : Shape {
+    override fun createOutline(
+      size: Size,
+      layoutDirection: LayoutDirection,
+      density: Density,
+    ): Outline {
+      val path = Path()
+      val w = size.width
+      val h = size.height
+      val r = min(w, h) * cornerRatio
 
-    // Approximate squircle with cubic beziers
-    path.moveTo(r, 0f)
-    path.lineTo(w - r, 0f)
-    path.cubicTo(w, 0f, w, 0f, w, r)
-    path.lineTo(w, h - r)
-    path.cubicTo(w, h, w, h, w - r, h)
-    path.lineTo(r, h)
-    path.cubicTo(0f, h, 0f, h, 0f, h - r)
-    path.lineTo(0f, r)
-    path.cubicTo(0f, 0f, 0f, 0f, r, 0f)
-    path.close()
+      // Approximate squircle with cubic beziers
+      path.moveTo(r, 0f)
+      path.lineTo(w - r, 0f)
+      path.cubicTo(w, 0f, w, 0f, w, r)
+      path.lineTo(w, h - r)
+      path.cubicTo(w, h, w, h, w - r, h)
+      path.lineTo(r, h)
+      path.cubicTo(0f, h, 0f, h, 0f, h - r)
+      path.lineTo(0f, r)
+      path.cubicTo(0f, 0f, 0f, 0f, r, 0f)
+      path.close()
 
-    return Outline.Generic(path)
+      return Outline.Generic(path)
+    }
   }
-}
 
 val SquircleShape: Shape = createSquircleShape(cornerRatio = 0.22f)
 
@@ -195,33 +196,35 @@ fun createSoftRoundedShape(
   topLeftRatio: Float = 0.2f,
   topRightRatio: Float = 0.2f,
   bottomRightRatio: Float = 0.2f,
-  bottomLeftRatio: Float = 0.2f
-): Shape = object : Shape {
-  override fun createOutline(
-    size: Size,
-    layoutDirection: LayoutDirection,
-    density: Density
-  ): Outline {
-    val minDim = min(size.width, size.height)
-    return Outline.Rounded(
-      RoundRect(
-        rect = Rect(0f, 0f, size.width, size.height),
-        topLeft = CornerRadius(minDim * topLeftRatio),
-        topRight = CornerRadius(minDim * topRightRatio),
-        bottomRight = CornerRadius(minDim * bottomRightRatio),
-        bottomLeft = CornerRadius(minDim * bottomLeftRatio)
+  bottomLeftRatio: Float = 0.2f,
+): Shape =
+  object : Shape {
+    override fun createOutline(
+      size: Size,
+      layoutDirection: LayoutDirection,
+      density: Density,
+    ): Outline {
+      val minDim = min(size.width, size.height)
+      return Outline.Rounded(
+        RoundRect(
+          rect = Rect(0f, 0f, size.width, size.height),
+          topLeft = CornerRadius(minDim * topLeftRatio),
+          topRight = CornerRadius(minDim * topRightRatio),
+          bottomRight = CornerRadius(minDim * bottomRightRatio),
+          bottomLeft = CornerRadius(minDim * bottomLeftRatio),
+        ),
       )
-    )
+    }
   }
-}
 
 // Asymmetric soft shape for visual interest
-val AsymmetricSoftShape: Shape = createSoftRoundedShape(
-  topLeftRatio = 0.25f,
-  topRightRatio = 0.15f,
-  bottomRightRatio = 0.25f,
-  bottomLeftRatio = 0.15f
-)
+val AsymmetricSoftShape: Shape =
+  createSoftRoundedShape(
+    topLeftRatio = 0.25f,
+    topRightRatio = 0.15f,
+    bottomRightRatio = 0.25f,
+    bottomLeftRatio = 0.15f,
+  )
 
 // =============================================================================
 // Puffy Shape - Cloud-like for Hero Album Art
@@ -232,31 +235,32 @@ val AsymmetricSoftShape: Shape = createSoftRoundedShape(
  * Wraps MaterialShapes.Puffy RoundedPolygon as a Compose Shape.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-val PuffyShape: Shape = object : Shape {
-  override fun createOutline(
-    size: Size,
-    layoutDirection: LayoutDirection,
-    density: Density
-  ): Outline {
-    val polygon = MaterialShapes.Puffy
-    val androidPath = polygon.toPath()
+val PuffyShape: Shape =
+  object : Shape {
+    override fun createOutline(
+      size: Size,
+      layoutDirection: LayoutDirection,
+      density: Density,
+    ): Outline {
+      val polygon = MaterialShapes.Puffy
+      val androidPath = polygon.toPath()
 
-    // Get actual path bounds
-    val pathBounds = android.graphics.RectF()
-    androidPath.computeBounds(pathBounds, true)
+      // Get actual path bounds
+      val pathBounds = android.graphics.RectF()
+      androidPath.computeBounds(pathBounds, true)
 
-    // Transform from actual bounds to target size, preserving aspect ratio
-    val matrix = android.graphics.Matrix()
-    matrix.setRectToRect(
-      pathBounds,
-      android.graphics.RectF(0f, 0f, size.width, size.height),
-      android.graphics.Matrix.ScaleToFit.CENTER
-    )
-    androidPath.transform(matrix)
+      // Transform from actual bounds to target size, preserving aspect ratio
+      val matrix = android.graphics.Matrix()
+      matrix.setRectToRect(
+        pathBounds,
+        android.graphics.RectF(0f, 0f, size.width, size.height),
+        android.graphics.Matrix.ScaleToFit.CENTER,
+      )
+      androidPath.transform(matrix)
 
-    return Outline.Generic(androidPath.asComposePath())
+      return Outline.Generic(androidPath.asComposePath())
+    }
   }
-}
 
 // =============================================================================
 // Animation Utilities
@@ -269,15 +273,16 @@ val PuffyShape: Shape = object : Shape {
 fun rememberPressScale(
   isPressed: Boolean,
   pressedScale: Float = 0.96f,
-  normalScale: Float = 1f
+  normalScale: Float = 1f,
 ): Float {
   val scale by animateFloatAsState(
     targetValue = if (isPressed) pressedScale else normalScale,
-    animationSpec = spring(
-      dampingRatio = Spring.DampingRatioMediumBouncy,
-      stiffness = Spring.StiffnessMedium
-    ),
-    label = "pressScale"
+    animationSpec =
+      spring(
+        dampingRatio = Spring.DampingRatioMediumBouncy,
+        stiffness = Spring.StiffnessMedium,
+      ),
+    label = "pressScale",
   )
   return scale
 }
@@ -291,19 +296,21 @@ fun rememberInteractiveElevation(
   isPlaying: Boolean = false,
   baseElevation: Float = 2f,
   pressedElevation: Float = 0f,
-  playingElevation: Float = 8f
+  playingElevation: Float = 8f,
 ): Float {
   val elevation by animateFloatAsState(
-    targetValue = when {
-      isPressed -> pressedElevation
-      isPlaying -> playingElevation
-      else -> baseElevation
-    },
-    animationSpec = spring(
-      dampingRatio = Spring.DampingRatioMediumBouncy,
-      stiffness = Spring.StiffnessLow
-    ),
-    label = "elevation"
+    targetValue =
+      when {
+        isPressed -> pressedElevation
+        isPlaying -> playingElevation
+        else -> baseElevation
+      },
+    animationSpec =
+      spring(
+        dampingRatio = Spring.DampingRatioMediumBouncy,
+        stiffness = Spring.StiffnessLow,
+      ),
+    label = "elevation",
   )
   return elevation
 }
@@ -324,8 +331,8 @@ private fun android.graphics.Matrix.values(): FloatArray {
 /**
  * Create Compose Matrix from Android Matrix values.
  */
-private fun matrixFromValues(values: FloatArray): androidx.compose.ui.graphics.Matrix {
-  return androidx.compose.ui.graphics.Matrix().apply {
+private fun matrixFromValues(values: FloatArray): androidx.compose.ui.graphics.Matrix =
+  androidx.compose.ui.graphics.Matrix().apply {
     this[0, 0] = values[0]
     this[0, 1] = values[1]
     this[0, 3] = values[2]
@@ -336,4 +343,3 @@ private fun matrixFromValues(values: FloatArray): androidx.compose.ui.graphics.M
     this[3, 1] = values[7]
     this[3, 3] = values[8]
   }
-}

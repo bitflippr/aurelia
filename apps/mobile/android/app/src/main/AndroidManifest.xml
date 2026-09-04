@@ -11,6 +11,7 @@
     android:roundIcon="@mipmap/ic_launcher_round"
     android:theme="@style/Theme.Aurelia"
     android:supportsRtl="true"
+    android:usesCleartextTraffic="true"
     android:enableOnBackInvokedCallback="true">
     <meta-data
       android:name="com.google.android.gms.car.application"

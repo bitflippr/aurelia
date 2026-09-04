@@ -5,7 +5,11 @@ impl JellyfinClient {
     #[must_use]
     pub fn new(server_url: String) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .expect("HTTP client configuration"),
             server_url,
             token: None,
         }
@@ -15,7 +19,11 @@ impl JellyfinClient {
     #[must_use]
     pub fn with_auth(server_url: String, token: String) -> Self {
         Self {
-            client: Client::new(),
+            client: Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(60))
+                .build()
+                .expect("HTTP client configuration"),
             server_url,
             token: Some(token),
         }
@@ -60,17 +68,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let message = response
-                .status()
-                .canonical_reason()
-                .unwrap_or("Unknown error");
-            return Err(error_handling::auth_error_with_context(
-                format!("HTTP {status}: {message}"),
-                &format!("Authentication failed for user '{username}'"),
-            ));
-        }
+        response.error_for_status_ref()?;
 
         let auth_response: JellyfinAuthResponse = response.json().await.map_err(|e| {
             error_handling::api_parse_error_with_context(
@@ -98,12 +96,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to fetch album artists: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         let response_text = response.text().await?;
         let response_json: serde_json::Value = serde_json::from_str(&response_text)
@@ -140,12 +133,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to fetch albums: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         let response_text = response.text().await?;
         let response_json: serde_json::Value = serde_json::from_str(&response_text)
@@ -250,12 +238,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to fetch albums for artist: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         let response_json: serde_json::Value = response.json().await?;
         let items = response_json["Items"]
@@ -271,29 +254,9 @@ impl JellyfinClient {
 
     /// Get music library items
     pub async fn get_music_library(&self, user_id: &str) -> AppResult<Vec<Song>> {
-        let library_url = utils::build_jellyfin_url(
-            &self.server_url,
-            &format!(
-                "/Items?userId={user_id}&IncludeItemTypes=Audio&Recursive=true&Fields=Genres,DateCreated,DateLastModified,MediaSources,ParentId,People,Tags,Path,RunTimeTicks,ImageTags,AlbumId,Artists,Album,ProductionYear,UserData,IndexNumber,PremiereDate,AlbumArtists,MediaStreams"
-            ),
-        );
-
-        let response = self
-            .client
-            .get(&library_url)
-            .header("Authorization", self.get_auth_header())
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to fetch library: HTTP {}",
-                response.status()
-            )));
-        }
-
-        let response_json: serde_json::Value = response.json().await?;
-        self.parse_music_items(&response_json)
+        self.get_songs_paginated(user_id, None, 200)
+            .await
+            .map(|(songs, _)| songs)
     }
 
     /// Get recently played music items
@@ -312,12 +275,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to fetch recently played: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         let response_json: serde_json::Value = response.json().await?;
         self.parse_music_items(&response_json)
@@ -344,12 +302,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to fetch songs for artist: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         let response_json: serde_json::Value = response.json().await?;
         self.parse_music_items(&response_json)
@@ -372,12 +325,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to fetch songs for album: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         let response_json: serde_json::Value = response.json().await?;
         let mut songs = self.parse_music_items(&response_json)?;
@@ -408,12 +356,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to fetch instant mix: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         let response_json: serde_json::Value = response.json().await?;
         self.parse_music_items(&response_json)

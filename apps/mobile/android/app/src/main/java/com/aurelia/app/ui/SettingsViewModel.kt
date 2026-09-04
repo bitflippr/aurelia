@@ -80,7 +80,7 @@ class SettingsViewModel(
       try {
         // Smart sync: paginated + incremental (songs, albums, artists)
         syncLibrarySmart(serverUrl, token, userId, appDataDir ?: "")
-        loadSyncState()  // Refresh sync state after sync
+        loadSyncState() // Refresh sync state after sync
         mutableState.update { it.copy(isSyncing = false, syncSuccess = true) }
       } catch (e: Exception) {
         if (!AuthInterceptor.handlePotentialAuthError(e)) {
@@ -114,7 +114,10 @@ class SettingsViewModel(
     }
   }
 
-  fun setAutoSyncEnabled(context: Context, enabled: Boolean) {
+  fun setAutoSyncEnabled(
+    context: Context,
+    enabled: Boolean,
+  ) {
     mutableState.update { it.copy(autoSyncEnabled = enabled) }
     if (enabled) {
       SyncWorker.schedule(context, mutableState.value.syncIntervalHours)
@@ -123,7 +126,10 @@ class SettingsViewModel(
     }
   }
 
-  fun setSyncInterval(context: Context, hours: Long) {
+  fun setSyncInterval(
+    context: Context,
+    hours: Long,
+  ) {
     mutableState.update { it.copy(syncIntervalHours = hours) }
     if (mutableState.value.autoSyncEnabled) {
       SyncWorker.schedule(context, hours)
@@ -139,7 +145,10 @@ class SettingsViewModel(
     mutableState.update { it.copy(eqEnabled = enabled) }
   }
 
-  fun setEQBandGain(bandIndex: Int, gain: Float) {
+  fun setEQBandGain(
+    bandIndex: Int,
+    gain: Float,
+  ) {
     if (bandIndex !in 0..4) return
     AudioManager.setEQBandGain(bandIndex, gain, sessionStore)
     val newBands = mutableState.value.eqBands.toMutableList()

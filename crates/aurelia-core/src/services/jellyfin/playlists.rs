@@ -15,17 +15,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let message = response
-                .status()
-                .canonical_reason()
-                .unwrap_or("Unknown error");
-            return Err(error_handling::network_error_with_context(
-                format!("HTTP {}: {}", status, message),
-                "Failed to get playlists from server",
-            ));
-        }
+        response.error_for_status_ref()?;
 
         let response_json: serde_json::Value = response.json().await.map_err(|e| {
             error_handling::network_error_with_context(
@@ -85,17 +75,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let message = response
-                .status()
-                .canonical_reason()
-                .unwrap_or("Unknown error");
-            return Err(error_handling::network_error_with_context(
-                format!("HTTP {}: {}", status, message),
-                "Failed to create playlist on server",
-            ));
-        }
+        response.error_for_status_ref()?;
 
         // Debug: log the raw response
         let response_text = response.text().await.map_err(|e| {
@@ -191,17 +171,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let message = response
-                .status()
-                .canonical_reason()
-                .unwrap_or("Unknown error");
-            return Err(error_handling::network_error_with_context(
-                format!("HTTP {}: {}", status, message),
-                &format!("Failed to update playlist {}", playlist_id),
-            ));
-        }
+        response.error_for_status_ref()?;
 
         // Debug: log the raw response
         let response_text = response.text().await.map_err(|e| {
@@ -306,17 +276,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let message = response
-                .status()
-                .canonical_reason()
-                .unwrap_or("Unknown error");
-            return Err(error_handling::network_error_with_context(
-                format!("HTTP {}: {}", status, message),
-                &format!("Failed to delete playlist {}", playlist_id),
-            ));
-        }
+        response.error_for_status_ref()?;
 
         info!("Successfully deleted playlist {}", playlist_id);
         Ok(())
@@ -343,17 +303,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let message = response
-                .status()
-                .canonical_reason()
-                .unwrap_or("Unknown error");
-            return Err(error_handling::network_error_with_context(
-                format!("HTTP {}: {}", status, message),
-                &format!("Failed to add items to playlist {}", playlist_id),
-            ));
-        }
+        response.error_for_status_ref()?;
 
         info!(
             "Successfully added {} items to playlist {}",
@@ -384,17 +334,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let message = response
-                .status()
-                .canonical_reason()
-                .unwrap_or("Unknown error");
-            return Err(error_handling::network_error_with_context(
-                format!("HTTP {}: {}", status, message),
-                &format!("Failed to remove items from playlist {}", playlist_id),
-            ));
-        }
+        response.error_for_status_ref()?;
 
         info!(
             "Successfully removed {} items from playlist {}",
@@ -425,17 +365,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status().as_u16();
-            let message = response
-                .status()
-                .canonical_reason()
-                .unwrap_or("Unknown error");
-            return Err(error_handling::network_error_with_context(
-                format!("HTTP {}: {}", status, message),
-                &format!("Failed to get playlist items for {}", playlist_id),
-            ));
-        }
+        response.error_for_status_ref()?;
 
         // Debug: log the raw response first
         let response_text = response.text().await.map_err(|e| {

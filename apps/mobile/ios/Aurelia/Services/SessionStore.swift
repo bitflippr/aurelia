@@ -7,7 +7,7 @@ private struct StoredSessionProfile: Codable {
     let provider: String
     let serverUrl: String
     let username: String
-    let token: String
+    let token: String?
     let userId: String
     let updatedAt: TimeInterval
 }
@@ -22,8 +22,9 @@ struct SessionProfile: Identifiable, Hashable {
 }
 
 /// Manages user session credentials, backed by the Rust redb database via UniFFI.
+@MainActor
 @Observable
-final class SessionStore: @unchecked Sendable {
+final class SessionStore {
     static let shared = SessionStore()
 
     private let logger = Logger(subsystem: "com.aurelia.app", category: "SessionStore")
@@ -32,6 +33,7 @@ final class SessionStore: @unchecked Sendable {
     private let profilesKey = "saved_profiles_json"
     private let ioQueue = DispatchQueue(label: "com.aurelia.sessionstore.io", qos: .userInitiated)
     private var cachedCredentials: Credentials?
+    private var generation: UInt64 = 0
 
     private init() {
         // AppDataDir is now computed dynamically to handle iOS container path changes
@@ -65,34 +67,19 @@ final class SessionStore: @unchecked Sendable {
 
     // MARK: - Credentials (via Rust redb)
 
-    func save(
-        serverUrl: String,
-        userId: String,
-        token: String,
-        username: String = "",
-        provider: BackendProvider = .jellyfin
-    ) {
-        guard let baseAppDataDir = getBaseAppDataDir(), !baseAppDataDir.isEmpty else {
-            logger.warning("Cannot save credentials: appDataDir not set")
-            return
-        }
+    func save(serverUrl: String, userId: String, token: String, username: String = "", provider: BackendProvider = .jellyfin) throws {
+        guard let base = getBaseAppDataDir() else { throw AppError.Config("App data directory is not configured") }
+        let credentials = Credentials(provider: provider, serverUrl: serverUrl, username: username, token: token, userId: userId)
+        let id = buildProfileId(credentials)
+        try saveCredentials(appDataDir: resolveProfileAppDataDir(baseAppDataDir: base, profileId: id), credentials: credentials)
+        _ = try upsertProfile(credentials)
+        setActiveProfileId(id)
+        cachedCredentials = credentials
+    }
 
-        do {
-            let credentials = Credentials(
-                provider: provider,
-                serverUrl: serverUrl,
-                username: username,
-                token: token,
-                userId: userId
-            )
-            let profileId = upsertProfile(credentials)
-            setActiveProfileId(profileId)
-            let profileAppDataDir = resolveProfileAppDataDir(baseAppDataDir: baseAppDataDir, profileId: profileId)
-            try saveCredentials(appDataDir: profileAppDataDir, credentials: credentials)
-            cachedCredentials = credentials
-        } catch {
-            logger.error("Failed to save credentials: \(error)")
-        }
+    func snapshot() -> (credentials: Credentials, appDataDir: String)? {
+        guard let credentials = getCredentials(), let path = getAppDataDir() else { return nil }
+        return (credentials, path)
     }
 
     func getCredentials() -> Credentials? {
@@ -122,6 +109,7 @@ final class SessionStore: @unchecked Sendable {
 
         guard let appDataDir = getAppDataDir(), !appDataDir.isEmpty else { return nil }
 
+        let requestGeneration = generation
         let loadedCredentials: Credentials? = await withCheckedContinuation { (continuation: CheckedContinuation<Credentials?, Never>) in
             ioQueue.async {
                 do {
@@ -132,7 +120,7 @@ final class SessionStore: @unchecked Sendable {
             }
         }
 
-        guard let loadedCredentials else { return nil }
+        guard generation == requestGeneration, getAppDataDir() == appDataDir, let loadedCredentials else { return nil }
         let normalized = normalizeCredentialsIfNeeded(loadedCredentials, appDataDir: appDataDir)
         cachedCredentials = normalized
         return normalized
@@ -143,7 +131,7 @@ final class SessionStore: @unchecked Sendable {
 
         bootstrapActiveProfileFromLegacyCredentials(baseAppDataDir: baseAppDataDir)
 
-        return loadStoredProfiles()
+        return ((try? loadStoredProfiles()) ?? [])
             .sorted { $0.updatedAt > $1.updatedAt }
             .compactMap { storedProfile in
                 guard let provider = storedProfile.provider.backendProvider else { return nil }
@@ -165,17 +153,11 @@ final class SessionStore: @unchecked Sendable {
 
     @discardableResult
     func switchProfile(_ profileId: String) -> Bool {
-        guard let baseAppDataDir = getBaseAppDataDir(), !baseAppDataDir.isEmpty else { return false }
-        guard let storedProfile = loadStoredProfiles().first(where: { $0.id == profileId }),
-              let credentials = storedProfile.toCredentials()
-        else {
-            return false
-        }
-
+        guard let base = getBaseAppDataDir() else { return false }
         do {
+            guard try loadStoredProfiles().contains(where: { $0.id == profileId }) else { return false }
+            guard let credentials = try loadCredentials(appDataDir: resolveProfileAppDataDir(baseAppDataDir: base, profileId: profileId)) else { return false }
             setActiveProfileId(profileId)
-            let profileAppDataDir = resolveProfileAppDataDir(baseAppDataDir: baseAppDataDir, profileId: profileId)
-            try saveCredentials(appDataDir: profileAppDataDir, credentials: credentials)
             cachedCredentials = credentials
             return true
         } catch {
@@ -186,15 +168,16 @@ final class SessionStore: @unchecked Sendable {
 
     @discardableResult
     func removeProfile(_ profileId: String) -> Bool {
-        var profiles = loadStoredProfiles()
+        guard var profiles = try? loadStoredProfiles() else { return false }
         let originalCount = profiles.count
         profiles.removeAll { $0.id == profileId }
 
         guard profiles.count != originalCount else { return false }
 
-        saveStoredProfiles(profiles)
+        do { try saveStoredProfiles(profiles) } catch { return false }
 
         if getActiveProfileId() == profileId {
+            setActiveProfileId(nil)
             if let replacement = profiles.max(by: { $0.updatedAt < $1.updatedAt }) {
                 _ = switchProfile(replacement.id)
             } else {
@@ -224,11 +207,11 @@ final class SessionStore: @unchecked Sendable {
     }
 
     func markLibraryRefreshed() {
-        UserDefaults.standard.set(Date(), forKey: libraryRefreshKey)
+        UserDefaults.standard.set(Date(), forKey: libraryRefreshKey + (getActiveProfileId() ?? "legacy"))
     }
 
     func lastLibraryRefreshDate() -> Date? {
-        UserDefaults.standard.object(forKey: libraryRefreshKey) as? Date
+        UserDefaults.standard.object(forKey: libraryRefreshKey + (getActiveProfileId() ?? "legacy")) as? Date
     }
 
     func shouldRefreshLibrary(maxAge: TimeInterval = 6 * 60 * 60) -> Bool {
@@ -367,6 +350,9 @@ final class SessionStore: @unchecked Sendable {
     }
 
     private func setActiveProfileId(_ profileId: String?) {
+        generation &+= 1
+        cachedCredentials = nil
+        LibraryStore.shared.reset()
         if let profileId, !profileId.isEmpty {
             UserDefaults.standard.set(profileId, forKey: activeProfileIdKey)
         } else {
@@ -383,8 +369,7 @@ final class SessionStore: @unchecked Sendable {
             return
         }
 
-        let profileId = upsertProfile(legacyCredentials)
-        setActiveProfileId(profileId)
+        let profileId = buildProfileId(legacyCredentials)
 
         do {
             let profileAppDataDir = resolveProfileAppDataDir(baseAppDataDir: baseAppDataDir, profileId: profileId)
@@ -392,6 +377,9 @@ final class SessionStore: @unchecked Sendable {
             if existingProfileCredentials == nil {
                 try saveCredentials(appDataDir: profileAppDataDir, credentials: legacyCredentials)
             }
+            _ = try upsertProfile(legacyCredentials)
+            setActiveProfileId(profileId)
+            try clearCredentials(appDataDir: baseAppDataDir)
         } catch {
             logger.error("Failed to bootstrap legacy profile credentials: \(error)")
         }
@@ -440,46 +428,57 @@ final class SessionStore: @unchecked Sendable {
         return profileURL.path
     }
 
-    private func upsertProfile(_ credentials: Credentials) -> String {
+    private func upsertProfile(_ credentials: Credentials) throws -> String {
         let profileId = buildProfileId(credentials)
-        var profiles = loadStoredProfiles()
+        var profiles = try loadStoredProfiles()
 
         let updatedProfile = StoredSessionProfile(
             id: profileId,
             provider: credentials.provider.storageValue,
             serverUrl: credentials.serverUrl,
             username: credentials.username,
-            token: credentials.token,
+            token: nil,
             userId: credentials.userId,
             updatedAt: Date().timeIntervalSince1970
         )
 
         profiles.removeAll { $0.id == profileId }
         profiles.append(updatedProfile)
-        saveStoredProfiles(profiles)
+        try saveStoredProfiles(profiles)
 
         return profileId
     }
 
-    private func loadStoredProfiles() -> [StoredSessionProfile] {
+    private func loadStoredProfiles() throws -> [StoredSessionProfile] {
         guard let raw = UserDefaults.standard.string(forKey: profilesKey), !raw.isEmpty else { return [] }
         guard let data = raw.data(using: .utf8) else { return [] }
 
         do {
-            return try JSONDecoder().decode([StoredSessionProfile].self, from: data)
+            let profiles = try JSONDecoder().decode([StoredSessionProfile].self, from: data)
+            guard let base = getBaseAppDataDir() else { return profiles }
+            var migrated: [StoredSessionProfile] = []
+            for profile in profiles {
+                guard let credentials = profile.toCredentials() else { migrated.append(profile); continue }
+                let path = resolveProfileAppDataDir(baseAppDataDir: base, profileId: profile.id)
+                if try loadCredentials(appDataDir: path) == nil { try saveCredentials(appDataDir: path, credentials: credentials) }
+                migrated.append(StoredSessionProfile(id: profile.id, provider: profile.provider, serverUrl: profile.serverUrl, username: profile.username, token: nil, userId: profile.userId, updatedAt: profile.updatedAt))
+            }
+            if profiles.contains(where: { $0.token != nil }) { try saveStoredProfiles(migrated) }
+            return migrated
         } catch {
             logger.error("Failed to decode stored profiles: \(error)")
-            return []
+            throw error
         }
     }
 
-    private func saveStoredProfiles(_ profiles: [StoredSessionProfile]) {
+    private func saveStoredProfiles(_ profiles: [StoredSessionProfile]) throws {
         do {
             let data = try JSONEncoder().encode(profiles)
             let encoded = String(data: data, encoding: .utf8)
             UserDefaults.standard.set(encoded, forKey: profilesKey)
         } catch {
             logger.error("Failed to encode stored profiles: \(error)")
+            throw error
         }
     }
 }
@@ -506,7 +505,7 @@ private extension String {
 
 private extension StoredSessionProfile {
     func toCredentials() -> Credentials? {
-        guard let provider = provider.backendProvider else { return nil }
+        guard let provider = provider.backendProvider, let token else { return nil }
         return Credentials(
             provider: provider,
             serverUrl: serverUrl,

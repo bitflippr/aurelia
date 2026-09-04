@@ -1,11 +1,16 @@
 use crate::db::schema::*;
 use crate::domain::errors::DomainError;
-use crate::domain::models::{SyncDelta, SyncReport, SyncState};
+use crate::domain::models::{SyncReport, SyncState};
 use crate::models::{Album, Artist, Song};
 use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata};
 use std::sync::Arc;
-use std::time::Instant;
-use tracing::{debug, info};
+use tracing::info;
+
+pub struct LibraryInventory {
+    pub songs: std::collections::HashSet<String>,
+    pub artists: std::collections::HashSet<String>,
+    pub albums: std::collections::HashSet<String>,
+}
 
 pub struct LibraryService {
     db: Arc<Database>,
@@ -50,138 +55,271 @@ impl LibraryService {
         Ok(())
     }
 
-    pub fn sync_library(
+    /// Replace a complete song snapshot and its indexes in one transaction.
+    ///
+    /// Artist/album metadata and the library sync checkpoint are untouched: a
+    /// song refresh does not establish when the rest of the library was synced.
+    /// Returns whether the song cache was empty before replacement.
+    pub fn replace_songs(&self, songs: &[Song]) -> Result<bool, DomainError> {
+        let write_txn = self.db.begin_write()?;
+        let was_empty = write_txn.open_table(SONGS)?.is_empty()?;
+        self.clear_table(&write_txn, SONGS)?;
+        self.clear_composite_table(&write_txn, SONGS_BY_ALBUM)?;
+        self.clear_composite_table(&write_txn, SONGS_BY_ARTIST)?;
+        self.clear_table(&write_txn, FAVORITES)?;
+        self.insert_songs(&write_txn, songs)?;
+        write_txn.commit()?;
+        Ok(was_empty)
+    }
+
+    fn insert_songs(
+        &self,
+        write_txn: &redb::WriteTransaction,
+        songs: &[Song],
+    ) -> Result<(), DomainError> {
+        // Sync songs with indexes
+        let mut songs_table = write_txn.open_table(SONGS)?;
+        let mut songs_by_album = write_txn.open_table(SONGS_BY_ALBUM)?;
+        let mut songs_by_artist = write_txn.open_table(SONGS_BY_ARTIST)?;
+        let mut favorites = write_txn.open_table(FAVORITES)?;
+
+        for song in songs {
+            let encoded =
+                postcard::to_stdvec(song).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            let previous = songs_table
+                .get(song.id.as_str())?
+                .map(|value| postcard::from_bytes::<Song>(value.value()))
+                .transpose()
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            if let Some(previous) = previous {
+                if let Some(album) = previous.album_id {
+                    songs_by_album.remove((album.as_str(), song.id.as_str()))?;
+                }
+                for artist in previous.artist_ids.unwrap_or_default() {
+                    songs_by_artist.remove((artist.as_str(), song.id.as_str()))?;
+                }
+            }
+            songs_table.insert(song.id.as_str(), encoded.as_slice())?;
+
+            // Update album index
+            if let Some(album_id) = &song.album_id {
+                songs_by_album.insert((album_id.as_str(), song.id.as_str()), ())?;
+            }
+
+            // Update artist indexes
+            if let Some(artist_ids) = &song.artist_ids {
+                for artist_id in artist_ids {
+                    songs_by_artist.insert((artist_id.as_str(), song.id.as_str()), ())?;
+                }
+            }
+
+            // Update favorites
+            if let Some(true) = song.is_favorite {
+                let timestamp = chrono::Utc::now().to_rfc3339();
+                let encoded_ts = postcard::to_stdvec(&timestamp)
+                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+                favorites.insert(song.id.as_str(), encoded_ts.as_slice())?;
+            } else {
+                favorites.remove(song.id.as_str())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn insert_artists(
+        &self,
+        write_txn: &redb::WriteTransaction,
+        artists: &[Artist],
+    ) -> Result<(), DomainError> {
+        // Sync artists
+        let mut artists_table = write_txn.open_table(ARTISTS)?;
+        for artist in artists {
+            let encoded = postcard::to_stdvec(artist)
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            artists_table.insert(artist.id.as_str(), encoded.as_slice())?;
+        }
+        Ok(())
+    }
+
+    fn insert_albums(
+        &self,
+        write_txn: &redb::WriteTransaction,
+        albums: &[Album],
+    ) -> Result<(), DomainError> {
+        // Sync albums with indexes
+        let mut albums_table = write_txn.open_table(ALBUMS)?;
+        let mut albums_by_artist = write_txn.open_table(ALBUMS_BY_ARTIST)?;
+
+        for album in albums {
+            let album_id = album
+                .id
+                .as_ref()
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| DomainError::ValidationError("Album has no ID".into()))?;
+
+            let encoded = postcard::to_stdvec(album)
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            let previous = albums_table
+                .get(album_id.as_str())?
+                .map(|value| postcard::from_bytes::<Album>(value.value()))
+                .transpose()
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            if let Some(previous) = previous.and_then(|album| album.artist_id) {
+                albums_by_artist.remove((previous.as_str(), album_id.as_str()))?;
+            }
+            albums_table.insert(album_id.as_str(), encoded.as_slice())?;
+
+            // Update artist-album index
+            if let Some(artist_id) = &album.artist_id {
+                albums_by_artist.insert((artist_id.as_str(), album_id.as_str()), ())?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Clear library records and indexes using this service's database.
+    pub fn clear_library(&self) -> Result<(), DomainError> {
+        let write_txn = self.db.begin_write()?;
+        self.clear_all_tables(&write_txn)?;
+        self.clear_table(&write_txn, SYNC_STATE)?;
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Commit a validated remote update and its checkpoint together. Without an
+    /// inventory this is a complete replacement; with one it is an incremental update.
+    pub fn commit_sync(
         &self,
         songs: &[Song],
         artists: &[Artist],
         albums: &[Album],
-        full_sync: bool,
+        inventory: Option<&LibraryInventory>,
+        mut state: SyncState,
     ) -> Result<SyncReport, DomainError> {
-        let start = Instant::now();
-
-        info!(
-            "Starting library sync (full_sync: {}, songs: {}, artists: {}, albums: {})",
-            full_sync,
-            songs.len(),
-            artists.len(),
-            albums.len()
-        );
-
-        // Get current sync state to preserve last_full_sync_time during incremental syncs
-        let current_state = self.get_sync_state().unwrap_or_default();
-
         let write_txn = self.db.begin_write()?;
-        {
-            // Clear indexes if full sync
-            if full_sync {
-                debug!("Full sync: clearing all tables and indexes");
-                self.clear_all_tables(&write_txn)?;
-            }
-
-            // Sync songs with indexes
-            let mut songs_table = write_txn.open_table(SONGS)?;
-            let mut songs_by_album = write_txn.open_table(SONGS_BY_ALBUM)?;
-            let mut songs_by_artist = write_txn.open_table(SONGS_BY_ARTIST)?;
-            let mut favorites = write_txn.open_table(FAVORITES)?;
-
-            for song in songs {
-                let encoded = postcard::to_stdvec(song)
-                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                songs_table.insert(song.id.as_str(), encoded.as_slice())?;
-
-                // Update album index
-                if let Some(album_id) = &song.album_id {
-                    songs_by_album.insert((album_id.as_str(), song.id.as_str()), ())?;
-                }
-
-                // Update artist indexes
-                if let Some(artist_ids) = &song.artist_ids {
-                    for artist_id in artist_ids {
-                        songs_by_artist.insert((artist_id.as_str(), song.id.as_str()), ())?;
-                    }
-                }
-
-                // Update favorites
-                if let Some(true) = song.is_favorite {
-                    let timestamp = chrono::Utc::now().to_rfc3339();
-                    let encoded_ts = postcard::to_stdvec(&timestamp)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    favorites.insert(song.id.as_str(), encoded_ts.as_slice())?;
-                }
-            }
-
-            // Sync artists
-            let mut artists_table = write_txn.open_table(ARTISTS)?;
-            for artist in artists {
-                let encoded = postcard::to_stdvec(artist)
-                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                artists_table.insert(artist.id.as_str(), encoded.as_slice())?;
-            }
-
-            // Sync albums with indexes
-            let mut albums_table = write_txn.open_table(ALBUMS)?;
-            let mut albums_by_artist = write_txn.open_table(ALBUMS_BY_ARTIST)?;
-
-            for album in albums {
-                let album_id = album
-                    .id
-                    .clone()
-                    .unwrap_or_else(|| format!("{}-{}", album.artist, album.name));
-
-                let encoded = postcard::to_stdvec(album)
-                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                albums_table.insert(album_id.as_str(), encoded.as_slice())?;
-
-                // Update artist-album index
-                if let Some(artist_id) = &album.artist_id {
-                    albums_by_artist.insert((artist_id.as_str(), album_id.as_str()), ())?;
-                }
-            }
-
-            // Update sync state
-            let new_state = SyncState {
-                last_sync_time: chrono::Utc::now().to_rfc3339(),
-                last_full_sync_time: if full_sync {
-                    Some(chrono::Utc::now().to_rfc3339())
-                } else {
-                    current_state.last_full_sync_time.clone()
-                },
-                last_sync_version: None,
-                song_count: songs.len() as u32,
-                artist_count: artists.len() as u32,
-                album_count: albums.len() as u32,
-                full_sync_in_progress: false,
-                full_sync_last_page_index: 0,
-                full_sync_entity_type: None,
-            };
-
-            let mut sync_state_table = write_txn.open_table(SYNC_STATE)?;
-            let encoded_state = postcard::to_stdvec(&new_state)
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-            sync_state_table.insert("library", encoded_state.as_slice())?;
+        let full_sync = inventory.is_none();
+        if full_sync {
+            self.clear_all_tables(&write_txn)?;
         }
-
+        self.insert_songs(&write_txn, songs)?;
+        self.insert_artists(&write_txn, artists)?;
+        self.insert_albums(&write_txn, albums)?;
+        let mut removed = (0, 0, 0);
+        if let Some(inventory) = inventory {
+            removed.0 = self.retain_records(&write_txn, SONGS, &inventory.songs)?;
+            removed.1 = self.retain_records(&write_txn, ARTISTS, &inventory.artists)?;
+            removed.2 = self.retain_records(&write_txn, ALBUMS, &inventory.albums)?;
+            self.rebuild_indexes(&write_txn)?;
+        }
+        state.song_count = write_txn.open_table(SONGS)?.len()? as u32;
+        state.artist_count = write_txn.open_table(ARTISTS)?.len()? as u32;
+        state.album_count = write_txn.open_table(ALBUMS)?.len()? as u32;
+        let encoded =
+            postcard::to_stdvec(&state).map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        write_txn
+            .open_table(SYNC_STATE)?
+            .insert("library", encoded.as_slice())?;
         write_txn.commit()?;
-
-        let duration = start.elapsed();
-        info!(
-            "Library sync completed in {}ms (songs: {}, artists: {}, albums: {})",
-            duration.as_millis(),
-            songs.len(),
-            artists.len(),
-            albums.len()
-        );
-
         Ok(SyncReport {
             full_sync,
-            songs_updated: songs.len() as u32,
-            artists_updated: artists.len() as u32,
-            albums_updated: albums.len() as u32,
-            duration_ms: duration.as_millis() as u64,
+            songs_updated: songs.len() as u32 + removed.0,
+            artists_updated: artists.len() as u32 + removed.1,
+            albums_updated: albums.len() as u32 + removed.2,
+            duration_ms: 0,
         })
     }
 
-    pub fn clear_all_tables(&self, write_txn: &redb::WriteTransaction) -> Result<(), DomainError> {
+    fn retain_records(
+        &self,
+        txn: &redb::WriteTransaction,
+        definition: redb::TableDefinition<&str, &[u8]>,
+        ids: &std::collections::HashSet<String>,
+    ) -> Result<u32, DomainError> {
+        let mut table = txn.open_table(definition)?;
+        let mut deleted = Vec::new();
+        for entry in table.iter()? {
+            let (id, _) = entry?;
+            if !ids.contains(id.value()) {
+                deleted.push(id.value().to_owned());
+            }
+        }
+        for id in &deleted {
+            table.remove(id.as_str())?;
+        }
+        Ok(deleted.len() as u32)
+    }
+
+    fn rebuild_indexes(&self, txn: &redb::WriteTransaction) -> Result<(), DomainError> {
+        self.clear_composite_table(txn, SONGS_BY_ALBUM)?;
+        self.clear_composite_table(txn, SONGS_BY_ARTIST)?;
+        self.clear_composite_table(txn, ALBUMS_BY_ARTIST)?;
+        self.clear_table(txn, FAVORITES)?;
+        let mut by_album = txn.open_table(SONGS_BY_ALBUM)?;
+        let mut by_artist = txn.open_table(SONGS_BY_ARTIST)?;
+        let mut favorites = txn.open_table(FAVORITES)?;
+        let timestamp = postcard::to_stdvec(&chrono::Utc::now().to_rfc3339())
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+        for entry in txn.open_table(SONGS)?.iter()? {
+            let (_, value) = entry?;
+            let song: Song = postcard::from_bytes(value.value())
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            if let Some(album) = song.album_id {
+                by_album.insert((album.as_str(), song.id.as_str()), ())?;
+            }
+            for artist in song.artist_ids.unwrap_or_default() {
+                by_artist.insert((artist.as_str(), song.id.as_str()), ())?;
+            }
+            if song.is_favorite == Some(true) {
+                favorites.insert(song.id.as_str(), timestamp.as_slice())?;
+            }
+        }
+        let mut album_index = txn.open_table(ALBUMS_BY_ARTIST)?;
+        for entry in txn.open_table(ALBUMS)?.iter()? {
+            let (id, value) = entry?;
+            let album: Album = postcard::from_bytes(value.value())
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            if let Some(artist) = album.artist_id {
+                album_index.insert((artist.as_str(), id.value()), ())?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn update_favorite(&self, song_id: &str, favorite: bool) -> Result<(), DomainError> {
+        let txn = self.db.begin_write()?;
+        let mut song = txn
+            .open_table(SONGS)?
+            .get(song_id)?
+            .map(|bytes| postcard::from_bytes::<Song>(bytes.value()))
+            .transpose()
+            .map_err(|e| DomainError::DatabaseError(e.to_string()))?
+            .ok_or_else(|| DomainError::NotFound(song_id.into()))?;
+        song.is_favorite = Some(favorite);
+        self.insert_songs(&txn, &[song])?;
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub fn sync_favorites(&self, favorite_ids: &[String]) -> Result<u32, DomainError> {
+        let ids: std::collections::HashSet<_> = favorite_ids.iter().collect();
+        let txn = self.db.begin_write()?;
+        let mut changes = Vec::new();
+        for entry in txn.open_table(SONGS)?.iter()? {
+            let (_, bytes) = entry?;
+            let mut song: Song = postcard::from_bytes(bytes.value())
+                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
+            let favorite = ids.contains(&song.id);
+            if song.is_favorite != Some(favorite) {
+                song.is_favorite = Some(favorite);
+                changes.push(song);
+            }
+        }
+        self.insert_songs(&txn, &changes)?;
+        txn.commit()?;
+        Ok(changes.len() as u32)
+    }
+
+    fn clear_all_tables(&self, write_txn: &redb::WriteTransaction) -> Result<(), DomainError> {
         // Clear main tables
         self.clear_table(write_txn, SONGS)?;
         self.clear_table(write_txn, ARTISTS)?;
@@ -247,173 +385,15 @@ impl LibraryService {
         Ok((song_count, artist_count, album_count))
     }
 
-    /// Get all local song IDs and their modification timestamps
-    pub fn get_local_songs_metadata(
-        &self,
-    ) -> Result<std::collections::HashMap<String, Option<String>>, DomainError> {
-        let read_txn = self.db.begin_read()?;
-        let songs_table = read_txn.open_table(SONGS)?;
-
-        let mut result = std::collections::HashMap::new();
-        for item in songs_table.iter()? {
-            let (key, value) = item?;
-            let song: Song = postcard::from_bytes(value.value())
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-            result.insert(key.value().to_string(), song.date_modified.clone());
-        }
-        Ok(result)
-    }
-
-    /// Compute delta between local and remote library state
-    /// Returns a SyncDelta indicating what needs to be added, removed, or updated
-    pub fn compute_delta(
-        &self,
-        remote_songs: &[Song],
-        remote_artists: &[Artist],
-        remote_albums: &[Album],
-    ) -> Result<SyncDelta, DomainError> {
-        let mut delta = SyncDelta::default();
-
-        // Get local metadata
-        let local_songs = self.get_local_songs_metadata()?;
-
-        // Build remote ID sets for quick lookup
-        let remote_song_ids: std::collections::HashSet<&str> =
-            remote_songs.iter().map(|s| s.id.as_str()).collect();
-        let remote_artist_ids: std::collections::HashSet<&str> =
-            remote_artists.iter().map(|a| a.id.as_str()).collect();
-        let remote_album_ids: std::collections::HashSet<&str> = remote_albums
-            .iter()
-            .filter_map(|a| a.id.as_deref())
-            .collect();
-
-        // Find songs to add or update
-        for song in remote_songs {
-            if let Some(local_date_modified) = local_songs.get(&song.id) {
-                // Song exists locally - check if it needs update
-                if local_date_modified != &song.date_modified {
-                    delta.songs_to_update.push(song.id.clone());
-                }
-            } else {
-                // Song doesn't exist locally - add it
-                delta.songs_to_add.push(song.id.clone());
-            }
-        }
-
-        // Find songs to remove (exist locally but not remotely)
-        for local_id in local_songs.keys() {
-            if !remote_song_ids.contains(local_id.as_str()) {
-                delta.songs_to_remove.push(local_id.clone());
-            }
-        }
-
-        // Get local artist/album IDs
-        let local_artist_ids = self.get_local_entity_ids(ARTISTS)?;
-        let local_album_ids = self.get_local_entity_ids(ALBUMS)?;
-
-        // Find artists to add/remove (updates handled separately by comparing timestamps)
-        for artist in remote_artists {
-            if !local_artist_ids.contains(&artist.id) {
-                delta.artists_to_add.push(artist.id.clone());
-            }
-        }
-        for local_id in &local_artist_ids {
-            if !remote_artist_ids.contains(local_id.as_str()) {
-                delta.artists_to_remove.push(local_id.clone());
-            }
-        }
-
-        // Find albums to add/remove
-        for album in remote_albums {
-            if let Some(id) = &album.id
-                && !local_album_ids.contains(id)
-            {
-                delta.albums_to_add.push(id.clone());
-            }
-        }
-        for local_id in &local_album_ids {
-            if !remote_album_ids.contains(local_id.as_str()) {
-                delta.albums_to_remove.push(local_id.clone());
-            }
-        }
-
-        info!(
-            "Computed sync delta: {} songs to add, {} to remove, {} to update; {} artists add/remove; {} albums add/remove",
-            delta.songs_to_add.len(),
-            delta.songs_to_remove.len(),
-            delta.songs_to_update.len(),
-            delta.artists_to_add.len() + delta.artists_to_remove.len(),
-            delta.albums_to_add.len() + delta.albums_to_remove.len()
-        );
-
-        Ok(delta)
-    }
-
-    /// Get all IDs from a table
-    fn get_local_entity_ids(
-        &self,
-        table_def: redb::TableDefinition<&str, &[u8]>,
-    ) -> Result<std::collections::HashSet<String>, DomainError> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(table_def)?;
-        let mut ids = std::collections::HashSet::new();
-        for item in table.iter()? {
-            let (key, _) = item?;
-            ids.insert(key.value().to_string());
-        }
-        Ok(ids)
-    }
-
-    // =========================================================================
-    // Smart Sync Methods (Phase 3b)
-    // =========================================================================
-
     /// Upsert songs into the database with their indexes.
     /// Returns the number of songs upserted.
     pub fn upsert_songs(&self, songs: &[Song]) -> Result<u32, DomainError> {
         if songs.is_empty() {
             return Ok(0);
         }
-
         let write_txn = self.db.begin_write()?;
-        {
-            let mut songs_table = write_txn.open_table(SONGS)?;
-            let mut songs_by_album = write_txn.open_table(SONGS_BY_ALBUM)?;
-            let mut songs_by_artist = write_txn.open_table(SONGS_BY_ARTIST)?;
-            let mut favorites = write_txn.open_table(FAVORITES)?;
-
-            for song in songs {
-                let encoded = postcard::to_stdvec(song)
-                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                songs_table.insert(song.id.as_str(), encoded.as_slice())?;
-
-                // Update album index
-                if let Some(album_id) = &song.album_id {
-                    songs_by_album.insert((album_id.as_str(), song.id.as_str()), ())?;
-                }
-
-                // Update artist indexes
-                if let Some(artist_ids) = &song.artist_ids {
-                    for artist_id in artist_ids {
-                        songs_by_artist.insert((artist_id.as_str(), song.id.as_str()), ())?;
-                    }
-                }
-
-                // Update favorites
-                if let Some(true) = song.is_favorite {
-                    let timestamp = chrono::Utc::now().to_rfc3339();
-                    let encoded_ts = postcard::to_stdvec(&timestamp)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    favorites.insert(song.id.as_str(), encoded_ts.as_slice())?;
-                } else {
-                    // Remove from favorites if no longer favorite
-                    let _ = favorites.remove(song.id.as_str());
-                }
-            }
-        }
+        self.insert_songs(&write_txn, songs)?;
         write_txn.commit()?;
-
-        info!("Upserted {} songs", songs.len());
         Ok(songs.len() as u32)
     }
 
@@ -423,31 +403,9 @@ impl LibraryService {
         if albums.is_empty() {
             return Ok(0);
         }
-
         let write_txn = self.db.begin_write()?;
-        {
-            let mut albums_table = write_txn.open_table(ALBUMS)?;
-            let mut albums_by_artist = write_txn.open_table(ALBUMS_BY_ARTIST)?;
-
-            for album in albums {
-                let album_id = album
-                    .id
-                    .clone()
-                    .unwrap_or_else(|| format!("{}-{}", album.artist, album.name));
-
-                let encoded = postcard::to_stdvec(album)
-                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                albums_table.insert(album_id.as_str(), encoded.as_slice())?;
-
-                // Update artist-album index
-                if let Some(artist_id) = &album.artist_id {
-                    albums_by_artist.insert((artist_id.as_str(), album_id.as_str()), ())?;
-                }
-            }
-        }
+        self.insert_albums(&write_txn, albums)?;
         write_txn.commit()?;
-
-        info!("Upserted {} albums", albums.len());
         Ok(albums.len() as u32)
     }
 
@@ -457,20 +415,9 @@ impl LibraryService {
         if artists.is_empty() {
             return Ok(0);
         }
-
         let write_txn = self.db.begin_write()?;
-        {
-            let mut artists_table = write_txn.open_table(ARTISTS)?;
-
-            for artist in artists {
-                let encoded = postcard::to_stdvec(artist)
-                    .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                artists_table.insert(artist.id.as_str(), encoded.as_slice())?;
-            }
-        }
+        self.insert_artists(&write_txn, artists)?;
         write_txn.commit()?;
-
-        info!("Upserted {} artists", artists.len());
         Ok(artists.len() as u32)
     }
 
@@ -480,29 +427,11 @@ impl LibraryService {
         &self,
         valid_remote_ids: &std::collections::HashSet<String>,
     ) -> Result<u32, DomainError> {
-        let local_ids = self.get_local_entity_ids(SONGS)?;
-        let to_remove: Vec<String> = local_ids.difference(valid_remote_ids).cloned().collect();
-
-        if to_remove.is_empty() {
-            return Ok(0);
-        }
-
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut songs_table = write_txn.open_table(SONGS)?;
-            let mut favorites = write_txn.open_table(FAVORITES)?;
-
-            for song_id in &to_remove {
-                songs_table.remove(song_id.as_str())?;
-                let _ = favorites.remove(song_id.as_str());
-            }
-            // Note: Index cleanup (SONGS_BY_ALBUM, SONGS_BY_ARTIST) is deferred
-            // to the next full sync for efficiency
-        }
-        write_txn.commit()?;
-
-        info!("Removed {} deleted songs", to_remove.len());
-        Ok(to_remove.len() as u32)
+        let txn = self.db.begin_write()?;
+        let count = self.retain_records(&txn, SONGS, valid_remote_ids)?;
+        self.rebuild_indexes(&txn)?;
+        txn.commit()?;
+        Ok(count)
     }
 
     /// Remove albums whose IDs are NOT in the provided set of valid remote IDs.
@@ -511,25 +440,11 @@ impl LibraryService {
         &self,
         valid_remote_ids: &std::collections::HashSet<String>,
     ) -> Result<u32, DomainError> {
-        let local_ids = self.get_local_entity_ids(ALBUMS)?;
-        let to_remove: Vec<String> = local_ids.difference(valid_remote_ids).cloned().collect();
-
-        if to_remove.is_empty() {
-            return Ok(0);
-        }
-
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut albums_table = write_txn.open_table(ALBUMS)?;
-
-            for album_id in &to_remove {
-                albums_table.remove(album_id.as_str())?;
-            }
-        }
-        write_txn.commit()?;
-
-        info!("Removed {} deleted albums", to_remove.len());
-        Ok(to_remove.len() as u32)
+        let txn = self.db.begin_write()?;
+        let count = self.retain_records(&txn, ALBUMS, valid_remote_ids)?;
+        self.rebuild_indexes(&txn)?;
+        txn.commit()?;
+        Ok(count)
     }
 
     /// Remove artists whose IDs are NOT in the provided set of valid remote IDs.
@@ -538,176 +453,11 @@ impl LibraryService {
         &self,
         valid_remote_ids: &std::collections::HashSet<String>,
     ) -> Result<u32, DomainError> {
-        let local_ids = self.get_local_entity_ids(ARTISTS)?;
-        let to_remove: Vec<String> = local_ids.difference(valid_remote_ids).cloned().collect();
-
-        if to_remove.is_empty() {
-            return Ok(0);
-        }
-
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut artists_table = write_txn.open_table(ARTISTS)?;
-
-            for artist_id in &to_remove {
-                artists_table.remove(artist_id.as_str())?;
-            }
-        }
-        write_txn.commit()?;
-
-        info!("Removed {} deleted artists", to_remove.len());
-        Ok(to_remove.len() as u32)
-    }
-
-    /// Apply a computed delta to the database
-    /// Only modifies items that have changed, rather than rewriting everything
-    pub fn apply_delta(
-        &self,
-        delta: &SyncDelta,
-        songs: &[Song],
-        artists: &[Artist],
-        albums: &[Album],
-    ) -> Result<SyncReport, DomainError> {
-        let start = Instant::now();
-
-        if delta.is_empty() {
-            info!("No changes to apply - library is up to date");
-            return Ok(SyncReport {
-                full_sync: false,
-                songs_updated: 0,
-                artists_updated: 0,
-                albums_updated: 0,
-                duration_ms: start.elapsed().as_millis() as u64,
-            });
-        }
-
-        info!(
-            "Applying delta: {} song changes, {} artist changes, {} album changes",
-            delta.songs_to_add.len() + delta.songs_to_remove.len() + delta.songs_to_update.len(),
-            delta.artists_to_add.len() + delta.artists_to_remove.len(),
-            delta.albums_to_add.len() + delta.albums_to_remove.len()
-        );
-
-        // Build lookup maps for efficient access
-        let songs_map: std::collections::HashMap<&str, &Song> =
-            songs.iter().map(|s| (s.id.as_str(), s)).collect();
-        let artists_map: std::collections::HashMap<&str, &Artist> =
-            artists.iter().map(|a| (a.id.as_str(), a)).collect();
-        let albums_map: std::collections::HashMap<&str, &Album> = albums
-            .iter()
-            .filter_map(|a| a.id.as_deref().map(|id| (id, a)))
-            .collect();
-
-        let write_txn = self.db.begin_write()?;
-        {
-            // Handle songs
-            let mut songs_table = write_txn.open_table(SONGS)?;
-            let mut songs_by_album = write_txn.open_table(SONGS_BY_ALBUM)?;
-            let mut songs_by_artist = write_txn.open_table(SONGS_BY_ARTIST)?;
-            let mut favorites = write_txn.open_table(FAVORITES)?;
-
-            // Add new songs
-            for song_id in &delta.songs_to_add {
-                if let Some(song) = songs_map.get(song_id.as_str()) {
-                    let encoded = postcard::to_stdvec(song)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    songs_table.insert(song.id.as_str(), encoded.as_slice())?;
-
-                    // Update indexes
-                    if let Some(album_id) = &song.album_id {
-                        songs_by_album.insert((album_id.as_str(), song.id.as_str()), ())?;
-                    }
-                    if let Some(artist_ids) = &song.artist_ids {
-                        for artist_id in artist_ids {
-                            songs_by_artist.insert((artist_id.as_str(), song.id.as_str()), ())?;
-                        }
-                    }
-                    if song.is_favorite == Some(true) {
-                        let timestamp = chrono::Utc::now().to_rfc3339();
-                        let encoded_ts = postcard::to_stdvec(&timestamp)
-                            .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                        favorites.insert(song.id.as_str(), encoded_ts.as_slice())?;
-                    }
-                }
-            }
-
-            // Update modified songs
-            for song_id in &delta.songs_to_update {
-                if let Some(song) = songs_map.get(song_id.as_str()) {
-                    let encoded = postcard::to_stdvec(song)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    songs_table.insert(song.id.as_str(), encoded.as_slice())?;
-                }
-            }
-
-            // Remove deleted songs
-            for song_id in &delta.songs_to_remove {
-                songs_table.remove(song_id.as_str())?;
-                favorites.remove(song_id.as_str())?;
-                // Note: Index cleanup would require iteration; skipping for efficiency
-                // Full sync will clean up orphaned indexes
-            }
-
-            // Handle artists
-            let mut artists_table = write_txn.open_table(ARTISTS)?;
-            for artist_id in &delta.artists_to_add {
-                if let Some(artist) = artists_map.get(artist_id.as_str()) {
-                    let encoded = postcard::to_stdvec(artist)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    artists_table.insert(artist.id.as_str(), encoded.as_slice())?;
-                }
-            }
-            for artist_id in &delta.artists_to_remove {
-                artists_table.remove(artist_id.as_str())?;
-            }
-
-            // Handle albums
-            let mut albums_table = write_txn.open_table(ALBUMS)?;
-            for album_id in &delta.albums_to_add {
-                if let Some(album) = albums_map.get(album_id.as_str()) {
-                    let encoded = postcard::to_stdvec(album)
-                        .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-                    albums_table.insert(album_id.as_str(), encoded.as_slice())?;
-                }
-            }
-            for album_id in &delta.albums_to_remove {
-                albums_table.remove(album_id.as_str())?;
-            }
-
-            // Update sync state
-            let current_state = self.get_sync_state().unwrap_or_default();
-            let new_state = SyncState {
-                last_sync_time: chrono::Utc::now().to_rfc3339(),
-                last_full_sync_time: current_state.last_full_sync_time,
-                last_sync_version: None,
-                song_count: songs_table.len()? as u32,
-                artist_count: artists_table.len()? as u32,
-                album_count: albums_table.len()? as u32,
-                full_sync_in_progress: false,
-                full_sync_last_page_index: 0,
-                full_sync_entity_type: None,
-            };
-
-            let mut sync_state_table = write_txn.open_table(SYNC_STATE)?;
-            let encoded_state = postcard::to_stdvec(&new_state)
-                .map_err(|e| DomainError::DatabaseError(e.to_string()))?;
-            sync_state_table.insert("library", encoded_state.as_slice())?;
-        }
-
-        write_txn.commit()?;
-
-        let duration = start.elapsed();
-        info!("Delta sync completed in {}ms", duration.as_millis());
-
-        Ok(SyncReport {
-            full_sync: false,
-            songs_updated: (delta.songs_to_add.len()
-                + delta.songs_to_update.len()
-                + delta.songs_to_remove.len()) as u32,
-            artists_updated: (delta.artists_to_add.len() + delta.artists_to_remove.len()) as u32,
-            albums_updated: (delta.albums_to_add.len() + delta.albums_to_remove.len()) as u32,
-            duration_ms: duration.as_millis() as u64,
-        })
+        let txn = self.db.begin_write()?;
+        let count = self.retain_records(&txn, ARTISTS, valid_remote_ids)?;
+        self.rebuild_indexes(&txn)?;
+        txn.commit()?;
+        Ok(count)
     }
 }
 
@@ -715,18 +465,15 @@ impl LibraryService {
 mod tests {
     use super::LibraryService;
     use crate::db;
-    use crate::domain::models::SyncDelta;
+    use crate::db::schema::{FAVORITES, SONGS, SONGS_BY_ALBUM, SONGS_BY_ARTIST};
     use crate::models::{Album, Artist, Song};
-    use once_cell::sync::OnceCell;
-    use serial_test::serial;
+    use redb::ReadableDatabase;
     use tempfile::TempDir;
 
-    fn init_db() {
-        static TEST_DIR: OnceCell<TempDir> = OnceCell::new();
-        let dir = TEST_DIR.get_or_init(|| TempDir::new().expect("temp dir"));
-        let path = dir.path().to_path_buf();
-        db::init(&path).expect("db init");
-        db::reset_for_tests().expect("db reset");
+    fn init_db() -> (TempDir, std::sync::Arc<redb::Database>) {
+        let dir = TempDir::new().expect("temp dir");
+        let db = db::open(&dir.path().to_path_buf()).expect("database");
+        (dir, db)
     }
 
     fn song(id: &str, album_id: &str, artist_id: &str, date_modified: &str) -> Song {
@@ -793,109 +540,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
-    fn compute_delta_detects_add_update_remove() {
-        init_db();
-        let db = db::get().expect("db");
-        let service = LibraryService::new(db);
-
-        let local_songs = vec![
-            song("song1", "album1", "artist1", "2024-01-01T00:00:00Z"),
-            song("song2", "album2", "artist2", "2024-01-01T00:00:00Z"),
-            song("song_local", "album2", "artist2", "2024-01-01T00:00:00Z"),
-        ];
-        let local_artists = vec![artist("artist1"), artist("artist2")];
-        let local_albums = vec![album("album1", "artist1"), album("album2", "artist2")];
-
-        service
-            .sync_library(&local_songs, &local_artists, &local_albums, true)
-            .expect("sync");
-
-        let remote_songs = vec![
-            song("song1", "album1", "artist1", "2024-01-01T00:00:00Z"),
-            song("song2", "album2", "artist2", "2024-02-01T00:00:00Z"),
-            song("song3", "album3", "artist3", "2024-02-01T00:00:00Z"),
-        ];
-        let remote_artists = vec![artist("artist1"), artist("artist3")];
-        let remote_albums = vec![album("album1", "artist1"), album("album3", "artist3")];
-
-        let delta = service
-            .compute_delta(&remote_songs, &remote_artists, &remote_albums)
-            .expect("delta");
-
-        assert!(delta.songs_to_add.contains(&"song3".to_string()));
-        assert!(delta.songs_to_update.contains(&"song2".to_string()));
-        assert!(delta.songs_to_remove.contains(&"song_local".to_string()));
-        assert!(delta.artists_to_add.contains(&"artist3".to_string()));
-        assert!(delta.artists_to_remove.contains(&"artist2".to_string()));
-        assert!(delta.albums_to_add.contains(&"album3".to_string()));
-        assert!(delta.albums_to_remove.contains(&"album2".to_string()));
-    }
-
-    #[test]
-    #[serial]
-    fn apply_delta_updates_counts() {
-        init_db();
-        let db = db::get().expect("db");
-        let service = LibraryService::new(db);
-
-        let local_songs = vec![
-            song("song1", "album1", "artist1", "2024-01-01T00:00:00Z"),
-            song("song2", "album2", "artist2", "2024-01-01T00:00:00Z"),
-            song("song_local", "album2", "artist2", "2024-01-01T00:00:00Z"),
-        ];
-        let local_artists = vec![artist("artist1"), artist("artist2")];
-        let local_albums = vec![album("album1", "artist1"), album("album2", "artist2")];
-
-        service
-            .sync_library(&local_songs, &local_artists, &local_albums, true)
-            .expect("sync");
-
-        let remote_songs = vec![
-            song("song1", "album1", "artist1", "2024-01-01T00:00:00Z"),
-            song("song2", "album2", "artist2", "2024-02-01T00:00:00Z"),
-            song("song3", "album3", "artist3", "2024-02-01T00:00:00Z"),
-        ];
-        let remote_artists = vec![artist("artist1"), artist("artist3")];
-        let remote_albums = vec![album("album1", "artist1"), album("album3", "artist3")];
-
-        let delta = service
-            .compute_delta(&remote_songs, &remote_artists, &remote_albums)
-            .expect("delta");
-
-        let report = service
-            .apply_delta(&delta, &remote_songs, &remote_artists, &remote_albums)
-            .expect("apply");
-
-        let (song_count, artist_count, album_count) = service.get_library_stats().expect("stats");
-
-        assert!(!report.full_sync);
-        assert_eq!(song_count, 3);
-        assert_eq!(artist_count, 2);
-        assert_eq!(album_count, 2);
-    }
-
-    #[test]
-    #[serial]
-    fn apply_delta_noop_when_empty() {
-        init_db();
-        let db = db::get().expect("db");
-        let service = LibraryService::new(db);
-        let report = service
-            .apply_delta(&SyncDelta::default(), &[], &[], &[])
-            .expect("apply");
-        assert_eq!(report.songs_updated, 0);
-    }
-
-    // =========================================================================
-    // Smart Sync Method Tests
-    // =========================================================================
-
-    #[test]
-    #[serial]
     fn upsert_songs_inserts_new_and_updates_existing() {
-        init_db();
-        let db = db::get().expect("db");
+        let (_dir, db) = init_db();
         let service = LibraryService::new(db);
 
         // Insert initial songs
@@ -922,10 +568,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn upsert_albums_inserts_and_updates() {
-        init_db();
-        let db = db::get().expect("db");
+        let (_dir, db) = init_db();
         let service = LibraryService::new(db);
 
         let albums_v1 = vec![album("alb1", "ar1"), album("alb2", "ar1")];
@@ -944,10 +588,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn upsert_artists_inserts_and_updates() {
-        init_db();
-        let db = db::get().expect("db");
+        let (_dir, db) = init_db();
         let service = LibraryService::new(db);
 
         let artists_v1 = vec![artist("ar1"), artist("ar2")];
@@ -966,10 +608,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn remove_deleted_songs_removes_absent_ids() {
-        init_db();
-        let db = db::get().expect("db");
+        let (_dir, db) = init_db();
         let service = LibraryService::new(db);
 
         // Populate with 3 songs
@@ -991,10 +631,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn remove_deleted_albums_removes_absent_ids() {
-        init_db();
-        let db = db::get().expect("db");
+        let (_dir, db) = init_db();
         let service = LibraryService::new(db);
 
         let albums = vec![
@@ -1016,10 +654,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn remove_deleted_artists_removes_absent_ids() {
-        init_db();
-        let db = db::get().expect("db");
+        let (_dir, db) = init_db();
         let service = LibraryService::new(db);
 
         let artists = vec![artist("ar1"), artist("ar2"), artist("ar3")];
@@ -1036,10 +672,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn remove_deleted_returns_zero_when_nothing_to_delete() {
-        init_db();
-        let db = db::get().expect("db");
+        let (_dir, db) = init_db();
         let service = LibraryService::new(db);
 
         let songs = vec![song("s1", "a1", "ar1", "2024-01-01")];
@@ -1052,10 +686,8 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn upsert_empty_is_noop() {
-        init_db();
-        let db = db::get().expect("db");
+        let (_dir, db) = init_db();
         let service = LibraryService::new(db);
 
         assert_eq!(service.upsert_songs(&[]).expect("upsert"), 0);
@@ -1064,11 +696,9 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn upsert_songs_updates_favorite_status() {
-        init_db();
-        let db = db::get().expect("db");
-        let service = LibraryService::new(db);
+        let (_dir, db) = init_db();
+        let service = LibraryService::new(db.clone());
 
         // Insert a favorite song
         let mut fav_song = song("fav1", "a1", "ar1", "2024-01-01");
@@ -1083,5 +713,36 @@ mod tests {
         // Verify it's no longer in favorites (song still exists)
         let (song_count, _, _) = service.get_library_stats().expect("stats");
         assert_eq!(song_count, 1);
+        let read = db.begin_read().unwrap();
+        assert!(
+            read.open_table(FAVORITES)
+                .unwrap()
+                .get("fav1")
+                .unwrap()
+                .is_none()
+        );
+        let table = read.open_table(SONGS).unwrap();
+        let record = table.get("fav1").unwrap().unwrap();
+        let stored: Song = postcard::from_bytes(record.value()).unwrap();
+        assert_eq!(stored.is_favorite, Some(false));
+    }
+
+    #[test]
+    fn changing_album_and_artist_removes_old_index_memberships() {
+        let (_dir, db) = init_db();
+        let service = LibraryService::new(db.clone());
+        service
+            .upsert_songs(&[song("s", "old-album", "old-artist", "2024-01-01")])
+            .unwrap();
+        service
+            .upsert_songs(&[song("s", "new-album", "new-artist", "2024-02-01")])
+            .unwrap();
+        let read = db.begin_read().unwrap();
+        let albums = read.open_table(SONGS_BY_ALBUM).unwrap();
+        let artists = read.open_table(SONGS_BY_ARTIST).unwrap();
+        assert!(albums.get(("old-album", "s")).unwrap().is_none());
+        assert!(artists.get(("old-artist", "s")).unwrap().is_none());
+        assert!(albums.get(("new-album", "s")).unwrap().is_some());
+        assert!(artists.get(("new-artist", "s")).unwrap().is_some());
     }
 }

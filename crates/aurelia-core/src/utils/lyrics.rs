@@ -61,20 +61,18 @@ fn extract_words_from_cues(
     let mut previous_word_end: Option<usize> = None;
 
     for cue in cues {
-        let start = cue.position.max(0) as usize;
-        let end = (cue.end_position.max(0) as usize).min(chars.len());
-        let source_segment = if start < end {
-            chars[start..end].iter().collect()
-        } else {
-            String::new()
+        // Reject invalid ranges rather than letting supplied Word text bypass bounds checks.
+        let Ok(start) = usize::try_from(cue.position) else {
+            continue;
         };
-        let raw_word = cue.word.clone().unwrap_or_else(|| {
-            if start < end {
-                chars[start..end].iter().collect()
-            } else {
-                String::new()
-            }
-        });
+        let Ok(end) = usize::try_from(cue.end_position) else {
+            continue;
+        };
+        if start >= end || end > chars.len() {
+            continue;
+        }
+        let source_segment: String = chars[start..end].iter().collect();
+        let raw_word = cue.word.clone().unwrap_or_else(|| source_segment.clone());
 
         // Skip empty cues (pure whitespace separators)
         let mut trimmed = raw_word.trim().to_string();
@@ -300,6 +298,32 @@ mod tests {
         assert_eq!(lines[0], "[00:00.000] Intro");
         assert_eq!(lines[1], "[00:01.234] Verse");
         assert_eq!(lines[2], "No timestamp");
+    }
+
+    #[test]
+    fn invalid_cue_ranges_do_not_panic_or_replace_valid_words() {
+        let cue = |position, end_position, word: &str| JellyfinLyricLineCue {
+            position,
+            end_position,
+            start: 0,
+            end: None,
+            word: Some(word.into()),
+        };
+        let mut line = make_line("é a", Some(0.0));
+        line.cues = Some(vec![
+            cue(0, 1, "é"),
+            cue(20, 21, "outside"),
+            cue(-1, 1, "negative"),
+            cue(2, 1, "reversed"),
+            cue(1, 10, "overflow"),
+            cue(2, 3, "a"),
+        ]);
+        let parsed = jellyfin_to_parsed_lyrics(&make_lyrics(vec![line]));
+        let words = parsed.synced[0].words.as_ref().unwrap();
+        assert_eq!(
+            words.iter().map(|w| w.word.as_str()).collect::<Vec<_>>(),
+            ["é", " a"]
+        );
     }
 
     #[test]

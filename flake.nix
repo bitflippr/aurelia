@@ -71,6 +71,14 @@
           libxcb
         ];
       in {
+        packages.android-emulator-sdk = (pkgs.androidenv.composeAndroidPackages {
+          platformVersions = ["36"];
+          abiVersions = ["x86_64"];
+          includeEmulator = true;
+          includeSystemImages = true;
+          systemImageTypes = ["google_apis"];
+        }).androidsdk;
+
         devShells.default = pkgs.mkShell {
           packages = with pkgs;
             [

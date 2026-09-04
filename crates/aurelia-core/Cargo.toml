@@ -51,6 +51,5 @@ stream-download = { version = "0.22", features = ["reqwest-rustls"], optional = 
 
 [dev-dependencies]
 httpmock = "0.8"
-serial_test = "3.2"
 tempfile = "3.12"
 tokio = { version = "1.43", features = ["macros", "rt-multi-thread"] }

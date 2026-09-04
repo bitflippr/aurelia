@@ -55,19 +55,19 @@ final class PlayerViewModel: @unchecked Sendable {
     private let logger = Logger(subsystem: "com.aurelia.app", category: "PlayerViewModel")
     private var lastFetchedSongId: String?
     private var favoriteCache: [String: Bool] = [:]
+    private var queueRevision: UInt64?
 
     /// Call this to sync state from the player controller.
     func updateFrom(_ snapshot: PlayerSnapshot, position: PlaybackPosition, playerController: AudioPlayerController) {
         let previousSongId = currentSongId
         let newSongId = snapshot.currentSongId
         let didChangeSong = newSongId != previousSongId
-        let shouldRefreshQueue = queue.isEmpty || didChangeSong || snapshot.isShuffled != isShuffled
+        let shouldRefreshQueue = queueRevision != snapshot.queueRevision
 
         if shouldRefreshQueue {
             let latestQueue = playerController.getQueue()
-            if queueSignature(for: latestQueue) != queueSignature(for: queue) {
-                queue = latestQueue
-            }
+            queue = latestQueue
+            queueRevision = snapshot.queueRevision
 
             // Update favorite cache from queue only when queue changes.
             for song in latestQueue where favoriteCache[song.id] == nil {
@@ -97,11 +97,6 @@ final class PlayerViewModel: @unchecked Sendable {
         setIfChanged(\.codec, snapshot.codec)
         setIfChanged(\.bitRate, snapshot.bitRate)
         setIfChanged(\.sampleRate, snapshot.sampleRate)
-
-        // Mark previous song as played on track change
-        if let previousSongId, didChangeSong, newSongId != nil {
-            markSongAsPlayed(previousSongId)
-        }
 
         // Fetch lyrics for new song
         if let newSongId, !newSongId.isEmpty, didChangeSong, newSongId != lastFetchedSongId {
@@ -254,29 +249,4 @@ final class PlayerViewModel: @unchecked Sendable {
         }
     }
 
-    private func queueSignature(for queue: [Song]) -> String {
-        guard let first = queue.first?.id, let last = queue.last?.id else {
-            return "empty:\(queue.count)"
-        }
-        return "\(queue.count):\(first):\(last)"
-    }
-
-    private func markSongAsPlayed(_ songId: String) {
-        guard let serverUrl = sessionStore.serverUrl,
-              let token = sessionStore.token,
-              let userId = sessionStore.userId else { return }
-
-        Task.detached {
-            do {
-                try await markItemPlayed(
-                    serverUrl: serverUrl,
-                    token: token,
-                    userId: userId,
-                    itemId: songId
-                )
-            } catch {
-                self.logger.error("Failed to mark song as played: \(songId) - \(error)")
-            }
-        }
-    }
 }

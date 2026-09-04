@@ -41,8 +41,7 @@ internal object AureliaMediaItems {
       .setMediaId(mediaId)
       .setMediaMetadata(
         songMetadata(song, isBrowsable = false, isPlayable = true, parentId = parentId),
-      )
-      .build()
+      ).build()
 
   fun folder(
     mediaId: String,
@@ -61,7 +60,11 @@ internal object AureliaMediaItems {
         .setMediaType(mediaType)
     subtitle?.takeIf { it.isNotBlank() }?.let(metadata::setSubtitle)
     artworkUri?.takeIf { it.isNotBlank() }?.let { metadata.setArtworkUri(Uri.parse(it)) }
-    return MediaItem.Builder().setMediaId(mediaId).setMediaMetadata(metadata.build()).build()
+    return MediaItem
+      .Builder()
+      .setMediaId(mediaId)
+      .setMediaMetadata(metadata.build())
+      .build()
   }
 
   fun isDirectlySeekable(mediaItem: MediaItem?): Boolean {
@@ -69,8 +72,7 @@ internal object AureliaMediaItems {
     return container?.lowercase() in directlySeekableContainers
   }
 
-  fun browseParentId(mediaItem: MediaItem): String? =
-    mediaItem.mediaMetadata.extras?.getString(EXTRA_BROWSE_PARENT_ID)
+  fun browseParentId(mediaItem: MediaItem): String? = mediaItem.mediaMetadata.extras?.getString(EXTRA_BROWSE_PARENT_ID)
 
   fun songFrom(mediaItem: MediaItem): Song? {
     val metadata = mediaItem.mediaMetadata

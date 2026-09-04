@@ -1,6 +1,6 @@
 # Contributing
 
-Aurelia is a mobile-only project. Keep platform UI and playback behavior in the native apps, and put reusable Jellyfin, persistence, library, and lyrics behavior in Rust when the UniFFI boundary supports it.
+Aurelia has native Android and iOS apps and a desktop prototype. Keep platform UI and playback behavior in the native apps, and put reusable Jellyfin, persistence, library, and lyrics behavior in Rust when the UniFFI boundary supports it.
 
 ## Before changing code
 
@@ -22,11 +22,16 @@ Aurelia is a mobile-only project. Keep platform UI and playback behavior in the 
 
 ```bash
 cargo fmt --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
+cargo clippy --workspace --exclude aurelia-desktop --all-targets -- -D warnings
+cargo test --workspace --exclude aurelia-desktop
 
 cd apps/mobile/android
 ./gradlew ktlintCheck testDebugUnitTest assembleDebug
 ```
 
 On macOS, also run `./apps/mobile/ios/build-rust.sh` followed by `swift test` in `apps/mobile/ios/AureliaCore`.
+
+For desktop changes, run `cargo clippy -p aurelia-desktop --all-targets -- -D warnings`
+and `cargo test -p aurelia-desktop`. On Linux, use `nix develop` to obtain its native
+audio, graphics, and window-system dependencies. Full `--workspace` checks include
+the desktop prototype; CI provisions those dependencies in a separate desktop job.

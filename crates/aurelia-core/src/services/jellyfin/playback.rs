@@ -20,16 +20,17 @@ impl JellyfinClient {
         let status = response.status();
         tracing::info!("[Lyrics] Response status: {}", status);
 
-        if !status.is_success() {
-            return Ok(None); // No lyrics available
+        if status == reqwest::StatusCode::NOT_FOUND {
+            return Ok(None);
         }
+        response.error_for_status_ref()?;
 
         // Read body as text first so we can log it on parse failure
         let body = response.text().await?;
         tracing::info!(
             "[Lyrics] Response body length: {} bytes, preview: {}",
             body.len(),
-            &body[..body.len().min(300)]
+            body.chars().take(300).collect::<String>()
         );
 
         match serde_json::from_str::<JellyfinLyrics>(&body) {
@@ -67,67 +68,21 @@ impl JellyfinClient {
                 .await?
         };
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to toggle favorite status: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         Ok(())
     }
 
     /// Get all favorite item IDs for the user
     pub async fn get_favorite_ids(&self, user_id: &str) -> AppResult<Vec<String>> {
-        let mut all_ids = Vec::new();
-        let mut start_index = 0;
-        let page_size = 1000;
-
-        loop {
-            let query = format!(
-                "/Items?userId={}&IsFavorite=true&StartIndex={}&Limit={}&Recursive=true",
-                user_id, start_index, page_size
-            );
-            let url = utils::build_jellyfin_url(&self.server_url, &query);
-
-            let response = self
-                .client
-                .get(&url)
-                .header("Authorization", self.get_auth_header())
-                .send()
-                .await?;
-
-            if !response.status().is_success() {
-                return Err(AppError::Network(format!(
-                    "Failed to get favorites: HTTP {}",
-                    response.status()
-                )));
-            }
-
-            let json: serde_json::Value = response.json().await?;
-            let items = json["Items"]
-                .as_array()
-                .ok_or_else(|| AppError::Network("Invalid favorites response".to_string()))?;
-
-            if items.is_empty() {
-                break;
-            }
-
-            for item in items {
-                if let Some(id) = item["Id"].as_str() {
-                    all_ids.push(id.to_string());
-                }
-            }
-
-            let total = json["TotalRecordCount"].as_i64().unwrap_or(0) as usize;
-            if start_index + items.len() >= total {
-                break;
-            }
-
-            start_index += items.len();
-        }
-
-        Ok(all_ids)
+        let query = format!(
+            "/Items?userId={user_id}&IncludeItemTypes=Audio&IsFavorite=true&Recursive=true"
+        );
+        let (items, _) = self.fetch_all_items(&query, 1000).await?;
+        Ok(items
+            .iter()
+            .map(|item| item["Id"].as_str().expect("validated page ID").to_owned())
+            .collect())
     }
 
     /// Get an audio stream URL for Aurelia's desktop streaming engine.
@@ -204,21 +159,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "No response body".to_string());
-            error!(
-                "Failed to register capabilities: HTTP {} - Response body: {}",
-                status, body
-            );
-            return Err(AppError::Network(format!(
-                "Failed to register capabilities: HTTP {} - {}",
-                status, body
-            )));
-        }
+        response.error_for_status_ref()?;
 
         debug!("Successfully registered client capabilities with Jellyfin server");
         Ok(())
@@ -252,16 +193,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response
-                .text()
-                .await
-                .unwrap_or_else(|_| "No response body".to_string());
-            return Err(AppError::Network(format!(
-                "Failed to report playback start: HTTP {status} - {body}"
-            )));
-        }
+        response.error_for_status_ref()?;
 
         debug!("Successfully reported playback start for item: {}", item_id);
         Ok(())
@@ -306,12 +238,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to report playback progress: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         debug!(
             "Successfully reported playback progress for item: {}",
@@ -347,12 +274,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to report playback stop: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         debug!("Successfully reported playback stop for item: {}", item_id);
         Ok(())
@@ -372,12 +294,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to mark item as played: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         debug!(
             "Successfully marked item {} as played for user {}",

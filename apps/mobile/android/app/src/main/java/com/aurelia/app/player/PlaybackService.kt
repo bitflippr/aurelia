@@ -44,6 +44,7 @@ class PlaybackService : MediaLibraryService() {
   private var mediaSession: MediaLibrarySession? = null
   private lateinit var notificationManager: NotificationManager
   private lateinit var resumeStore: PlaybackResumeStore
+  private var playbackReporting: PlaybackReporting? = null
   private val serviceJob: Job = SupervisorJob()
   private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
 
@@ -55,6 +56,7 @@ class PlaybackService : MediaLibraryService() {
     val exoPlayer = ExoPlayer.Builder(this).build()
     val player = TranscodingSeekPlayer(exoPlayer)
     val sessionStore = SessionStore(this)
+    playbackReporting = PlaybackReporting(player, sessionStore)
     val catalog =
       AutoMediaCatalog(
         source = JellyfinAutoMediaSource(sessionStore),
@@ -121,6 +123,7 @@ class PlaybackService : MediaLibraryService() {
   }
 
   override fun onDestroy() {
+    playbackReporting?.close()
     mediaSession?.player?.let(::saveResumeState)
     serviceScope.cancel()
     AudioManager.release()
@@ -183,10 +186,15 @@ class PlaybackService : MediaLibraryService() {
         }
         return MediaSession.ConnectionResult
           .AcceptedResultBuilder(session)
-          .setAvailablePlayerCommands(Player.Commands.Builder().addAllCommands().build())
-          .setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS)
+          .setAvailablePlayerCommands(
+            Player.Commands
+              .Builder()
+              .addAllCommands()
+              .build(),
+          ).setAvailableSessionCommands(MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS)
           .build()
       }
+
       override fun onGetLibraryRoot(
         session: MediaLibrarySession,
         browser: MediaSession.ControllerInfo,

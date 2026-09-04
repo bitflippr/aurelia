@@ -572,7 +572,6 @@ impl AureliaDesktop {
         Some(PlaybackItem {
             server_url: session.server_url.clone(),
             token: session.token.clone(),
-            user_id: session.user_id.clone(),
             id: track.id.clone(),
             title: track.title.clone(),
             artist: track.artist.clone(),
@@ -723,7 +722,12 @@ impl AureliaDesktop {
         let playback = self.playback.clone();
         playback.begin_prepare();
         playback.begin_seek();
-        let task = gpui_tokio::Tokio::spawn(cx, async move { playback.play(item, volume).await });
+        let generation = playback.begin_command();
+        let task =
+            gpui_tokio::Tokio::spawn(
+                cx,
+                async move { playback.play(item, volume, generation).await },
+            );
         cx.spawn(async move |this, cx| {
             let result = task.await;
             this.update(cx, |this, cx| {
@@ -938,7 +942,8 @@ impl AureliaDesktop {
         self.state.elapsed_seconds = 0;
         let playback = self.playback.clone();
         playback.begin_seek();
-        gpui_tokio::Tokio::spawn(cx, async move { playback.stop().await }).detach();
+        let generation = playback.begin_command();
+        gpui_tokio::Tokio::spawn(cx, async move { playback.stop(generation).await }).detach();
         cx.notify();
     }
 
@@ -1103,7 +1108,10 @@ impl AureliaDesktop {
                         if this.stage != AppStage::Syncing || this.sync_status.error.is_some() {
                             return false;
                         }
-                        let progress = aurelia_core::get_sync_progress();
+                        let Some(session) = this.session.as_ref() else {
+                            return false;
+                        };
+                        let progress = aurelia_core::get_sync_progress(session.library_dir.clone());
                         this.sync_status.stage = if progress.is_complete {
                             "Finishing your library".into()
                         } else {
@@ -1539,6 +1547,7 @@ impl AureliaDesktop {
     }
 
     fn navigation_item(&self, destination: Destination, cx: &mut Context<Self>) -> Stateful<Div> {
+        let available = destination.is_available();
         let selected = self.state.destination == destination;
         let collapsed = self.state.sidebar_collapsed;
         let expanded_phase = if collapsed { 0.0 } else { 1.0 };
@@ -1547,7 +1556,7 @@ impl AureliaDesktop {
             .role(Role::Button)
             .aria_label(destination.label())
             .focusable()
-            .tab_stop(true)
+            .tab_stop(available)
             .flex()
             .items_center()
             .h(px(40.0))
@@ -1573,6 +1582,7 @@ impl AureliaDesktop {
                 div()
                     .whitespace_nowrap()
                     .child(destination.label())
+                    .when(!available, |label| label.child(" (coming soon)"))
                     .with_spring(
                         ("nav-label", destination as usize),
                         sidebar_animation(expanded_phase),
@@ -1580,6 +1590,9 @@ impl AureliaDesktop {
                     ),
             )
             .on_click(cx.listener(move |this, _, _, cx| {
+                if !available {
+                    return;
+                }
                 this.state.destination = destination;
                 this.refresh_main_list();
                 cx.notify();
@@ -2184,7 +2197,7 @@ impl AureliaDesktop {
         let track_count = self.visible_track_indices.len();
         let section_title = if self.state.query.is_empty() {
             if destination == Destination::Home {
-                "Recently played".to_string()
+                "Songs".to_string()
             } else {
                 format!("{} in your library", destination.label())
             }

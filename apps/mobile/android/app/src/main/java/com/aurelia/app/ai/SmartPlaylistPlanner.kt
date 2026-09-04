@@ -19,8 +19,7 @@ object SmartPlaylistPlanner {
           song = song,
           score = scoreSong(song, queryTerms),
         )
-      }
-      .sortedWith(compareByDescending<CandidateSong> { it.score }.thenBy { it.song.safeName() })
+      }.sortedWith(compareByDescending<CandidateSong> { it.score }.thenBy { it.song.safeName() })
       .mapIndexed { index, candidate -> candidate.copy(alias = "s${index + 1}") }
       .toList()
   }
@@ -45,7 +44,7 @@ object SmartPlaylistPlanner {
       Finish by calling submit_playlist with exactly $count aliases when enough matching songs exist.
 
       Do not return the final playlist as text. The app only accepts the submit_playlist tool result.
-    """.trimIndent()
+      """.trimIndent()
   }
 
   fun validateSubmittedPlaylist(

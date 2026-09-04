@@ -25,7 +25,7 @@ pub fn is_ttml(text: &str) -> bool {
                 && after_decl
                     .as_bytes()
                     .get(3)
-                    .is_some_and(|&b| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r');
+                    .is_some_and(|&b| b.is_ascii_whitespace() || b == b'>' || b == b'/');
         }
         return false;
     }
@@ -33,7 +33,7 @@ pub fn is_ttml(text: &str) -> bool {
         && trimmed
             .as_bytes()
             .get(3)
-            .is_some_and(|&b| b == b' ' || b == b'\t' || b == b'\n' || b == b'\r')
+            .is_some_and(|&b| b.is_ascii_whitespace() || b == b'>' || b == b'/')
 }
 
 /// Parse Apple Music TTML timestamp into milliseconds.
@@ -113,26 +113,18 @@ fn get_attr<'a>(
 
 /// Parse a TTML lyrics document into a [`ParsedLyrics`].
 ///
-/// Returns an empty (but valid-structured) `ParsedLyrics` on any parse error
-/// so callers never need to handle XML errors.
+/// Returns an error for malformed XML or a document without a TTML root.
 pub fn parse_ttml(xml: &str) -> Result<ParsedLyrics> {
-    match parse_ttml_inner(xml) {
-        Some(lyrics) => Ok(lyrics),
-        None => Ok(ParsedLyrics {
-            plain: vec![],
-            synced: vec![],
-            sections: None,
-            agents: None,
-            songwriters: None,
-            language: None,
-            are_from_remote: false,
-        }),
-    }
+    parse_ttml_inner(xml)
+        .ok_or_else(|| crate::error::LyricsError::Xml("Malformed TTML document".into()))
 }
 
 /// Internal parser that returns `None` on any structural error.
 fn parse_ttml_inner(xml: &str) -> Option<ParsedLyrics> {
     let mut reader = Reader::from_str(xml);
+    reader.config_mut().expand_empty_elements = true;
+    let mut depth = 0usize;
+    let mut root_seen = false;
 
     let mut language: Option<String> = None;
     let mut timing_mode: Option<String> = None; // "Line" or "Word"
@@ -190,6 +182,13 @@ fn parse_ttml_inner(xml: &str) -> Option<ParsedLyrics> {
             Ok(Event::Start(ref e)) | Ok(Event::Empty(ref e)) => {
                 let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 let local_tag = tag.split(':').next_back().unwrap_or(&tag);
+                if depth == 0 {
+                    if root_seen || local_tag != "tt" {
+                        return None;
+                    }
+                    root_seen = true;
+                }
+                depth += 1;
                 let attrs = collect_attrs(e);
 
                 match local_tag {
@@ -300,6 +299,7 @@ fn parse_ttml_inner(xml: &str) -> Option<ParsedLyrics> {
                 }
             }
             Ok(Event::End(ref e)) => {
+                depth = depth.checked_sub(1)?;
                 let tag = String::from_utf8_lossy(e.name().as_ref()).to_string();
                 let local_tag = tag.split(':').next_back().unwrap_or(&tag);
 
@@ -430,7 +430,10 @@ fn parse_ttml_inner(xml: &str) -> Option<ParsedLyrics> {
                 }
             }
             Ok(Event::Text(ref e)) => {
-                let text = e.decode().unwrap_or_default().to_string();
+                let text = e.decode().ok()?.to_string();
+                if depth == 0 && !text.trim().is_empty() {
+                    return None;
+                }
                 if in_songwriter {
                     songwriter_text.push_str(&text);
                 } else if in_translation && current_translation_key.is_some() {
@@ -447,7 +450,12 @@ fn parse_ttml_inner(xml: &str) -> Option<ParsedLyrics> {
                     }
                 }
             }
-            Ok(Event::Eof) => break,
+            Ok(Event::Eof) => {
+                if !root_seen || depth != 0 {
+                    return None;
+                }
+                break;
+            }
             Err(_) => return None,
             _ => {}
         }
@@ -495,6 +503,9 @@ mod tests {
 
     #[test]
     fn is_ttml_detects_bare_tt() {
+        assert!(is_ttml("<tt></tt>"));
+        assert!(is_ttml("<tt/>"));
+        assert!(parse_ttml("<tt/>trailing text").is_err());
         assert!(is_ttml(r#"<tt xmlns="http://www.w3.org/ns/ttml"></tt>"#));
     }
 

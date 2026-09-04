@@ -93,8 +93,7 @@ internal class AutoMediaCatalog(
         .filter {
           it.name.lowercase(Locale.ROOT).contains(normalizedQuery) ||
             it.artist.lowercase(Locale.ROOT).contains(normalizedQuery)
-        }
-        .map(::albumItem)
+        }.map(::albumItem)
     val playlists =
       runCatching { source.playlists() }
         .getOrDefault(emptyList())
@@ -107,8 +106,7 @@ internal class AutoMediaCatalog(
           song.name.lowercase(Locale.ROOT).contains(normalizedQuery) ||
             song.album?.lowercase(Locale.ROOT)?.contains(normalizedQuery) == true ||
             song.artists?.any { it.lowercase(Locale.ROOT).contains(normalizedQuery) } == true
-        }
-        .sortedBySongTitle()
+        }.sortedBySongTitle()
         .map { browseSong(it, AutoMediaIds.SONGS) }
 
     return (artists + albums + playlists + songs).page(page, pageSize)
@@ -202,12 +200,22 @@ internal class AutoMediaCatalog(
 
   private suspend fun songsForAlbum(albumMediaId: String): List<Song> {
     val albumId = AutoMediaIds.albumValue(albumMediaId) ?: return emptyList()
-    return index().albums.firstOrNull { it.id == albumId }?.songs.orEmpty().sortedByTrack()
+    return index()
+      .albums
+      .firstOrNull { it.id == albumId }
+      ?.songs
+      .orEmpty()
+      .sortedByTrack()
   }
 
   private suspend fun songsForArtist(artistMediaId: String): List<Song> {
     val artistId = AutoMediaIds.artistValue(artistMediaId) ?: return emptyList()
-    return index().artists.firstOrNull { it.id == artistId }?.songs.orEmpty().sortedForArtist()
+    return index()
+      .artists
+      .firstOrNull { it.id == artistId }
+      ?.songs
+      .orEmpty()
+      .sortedForArtist()
   }
 
   private suspend fun matchingSongs(query: String): List<Song> {
@@ -325,13 +333,13 @@ internal class AutoCatalogIndex(
         AutoAlbum(
           id = id,
           name = albumSongs.firstNotNullOfOrNull { it.album } ?: "Unknown album",
-          artist = albumSongs.firstNotNullOfOrNull { it.albumArtists?.firstOrNull()?.name }
-            ?: albumSongs.firstNotNullOfOrNull { it.artists?.firstOrNull() }.orEmpty(),
+          artist =
+            albumSongs.firstNotNullOfOrNull { it.albumArtists?.firstOrNull()?.name }
+              ?: albumSongs.firstNotNullOfOrNull { it.artists?.firstOrNull() }.orEmpty(),
           artworkUri = albumSongs.firstNotNullOfOrNull { it.albumArtUrl?.takeIf(String::isNotBlank) },
           songs = albumSongs,
         )
-      }
-      .sortedWith(compareBy<AutoAlbum, String>(String.CASE_INSENSITIVE_ORDER) { it.name })
+      }.sortedWith(compareBy<AutoAlbum, String>(String.CASE_INSENSITIVE_ORDER) { it.name })
 
   val artists: List<AutoArtist> =
     buildMap<String, MutableList<Pair<String, Song>>> {
@@ -341,16 +349,14 @@ internal class AutoCatalogIndex(
           getOrPut(id) { mutableListOf() }.add(name to song)
         }
       }
-    }
-      .map { (id, entries) ->
-        AutoArtist(
-          id = id,
-          name = entries.first().first,
-          artworkUri = entries.firstNotNullOfOrNull { it.second.albumArtUrl?.takeIf(String::isNotBlank) },
-          songs = entries.map { it.second }.distinctBy { it.id },
-        )
-      }
-      .sortedWith(compareBy<AutoArtist, String>(String.CASE_INSENSITIVE_ORDER) { it.name })
+    }.map { (id, entries) ->
+      AutoArtist(
+        id = id,
+        name = entries.first().first,
+        artworkUri = entries.firstNotNullOfOrNull { it.second.albumArtUrl?.takeIf(String::isNotBlank) },
+        songs = entries.map { it.second }.distinctBy { it.id },
+      )
+    }.sortedWith(compareBy<AutoArtist, String>(String.CASE_INSENSITIVE_ORDER) { it.name })
 }
 
 internal object AutoMediaIds {
@@ -385,7 +391,9 @@ internal object AutoMediaIds {
   fun isCatalogId(mediaId: String): Boolean = mediaId.startsWith("aurelia:")
 
   fun namedAlbum(song: Song): String =
-    "name:${song.album.orEmpty().lowercase(Locale.ROOT)}:${song.artists?.firstOrNull().orEmpty().lowercase(Locale.ROOT)}"
+    "name:${song.album.orEmpty().lowercase(
+      Locale.ROOT,
+    )}:${song.artists?.firstOrNull().orEmpty().lowercase(Locale.ROOT)}"
 
   fun namedArtist(name: String): String = "name:${name.lowercase(Locale.ROOT)}"
 

@@ -12,28 +12,28 @@ import uniffi.aurelia_core.Song
  * Replaces repeated `remember { mutableStateOf(...) }` blocks across 5+ screens.
  */
 class ContextMenuState {
-    var selectedSong: Song? by mutableStateOf(null)
-    var showContextMenu: Boolean by mutableStateOf(false)
-    var showPlaylistPicker: Boolean by mutableStateOf(false)
+  var selectedSong: Song? by mutableStateOf(null)
+  var showContextMenu: Boolean by mutableStateOf(false)
+  var showPlaylistPicker: Boolean by mutableStateOf(false)
 
-    fun openContextMenu(song: Song) {
-        selectedSong = song
-        showContextMenu = true
-    }
+  fun openContextMenu(song: Song) {
+    selectedSong = song
+    showContextMenu = true
+  }
 
-    fun openPlaylistPicker(song: Song) {
-        selectedSong = song
-        showPlaylistPicker = true
-    }
+  fun openPlaylistPicker(song: Song) {
+    selectedSong = song
+    showPlaylistPicker = true
+  }
 
-    fun dismissContextMenu() {
-        showContextMenu = false
-    }
+  fun dismissContextMenu() {
+    showContextMenu = false
+  }
 
-    fun dismissPlaylistPicker() {
-        showPlaylistPicker = false
-        selectedSong = null
-    }
+  fun dismissPlaylistPicker() {
+    showPlaylistPicker = false
+    selectedSong = null
+  }
 }
 
 @Composable

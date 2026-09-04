@@ -13,6 +13,10 @@ pub enum Destination {
 }
 
 impl Destination {
+    pub const fn is_available(self) -> bool {
+        matches!(self, Self::Home | Self::Songs)
+    }
+
     pub const LIBRARY: [Self; 5] = [
         Self::Home,
         Self::Songs,

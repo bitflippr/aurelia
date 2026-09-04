@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc, Mutex,
+    Arc, Mutex, OnceLock,
     atomic::{AtomicU64, Ordering},
 };
 
@@ -16,7 +16,6 @@ const PROGRESS_REPORT_INTERVAL_SECONDS: u64 = 10;
 pub struct PlaybackItem {
     pub server_url: String,
     pub token: String,
-    pub user_id: String,
     pub id: String,
     pub title: String,
     pub artist: String,
@@ -45,6 +44,9 @@ pub struct PlaybackController {
     prepare_lock: Arc<tokio::sync::Mutex<()>>,
     seek_generation: Arc<AtomicU64>,
     seek_lock: Arc<tokio::sync::Mutex<()>>,
+    command_generation: Arc<tokio::sync::watch::Sender<u64>>,
+    command_lock: Arc<tokio::sync::Mutex<()>>,
+    reports: Arc<OnceLock<tokio::sync::mpsc::Sender<Report>>>,
 }
 
 #[derive(Clone, Debug)]
@@ -75,6 +77,9 @@ impl PlaybackController {
             prepare_lock: Arc::new(tokio::sync::Mutex::new(())),
             seek_generation: Arc::new(AtomicU64::new(0)),
             seek_lock: Arc::new(tokio::sync::Mutex::new(())),
+            command_generation: Arc::new(tokio::sync::watch::channel(0).0),
+            command_lock: Arc::new(tokio::sync::Mutex::new(())),
+            reports: Arc::new(OnceLock::new()),
         }
     }
 
@@ -115,8 +120,33 @@ impl PlaybackController {
         Ok(())
     }
 
-    pub async fn play(&self, item: PlaybackItem, volume: f32) -> Result<()> {
-        self.stop().await?;
+    /// Called synchronously by the command issuer, before spawning async work.
+    pub fn begin_command(&self) -> u64 {
+        self.begin_prepare();
+        self.begin_seek();
+        self.command_generation
+            .send_modify(|value| *value = value.wrapping_add(1));
+        *self.command_generation.borrow()
+    }
+
+    pub async fn play(&self, item: PlaybackItem, volume: f32, generation: u64) -> Result<()> {
+        let mut changes = self.command_generation.subscribe();
+        let _guard = self.command_lock.lock().await;
+        if *changes.borrow_and_update() != generation {
+            return Ok(());
+        }
+        tokio::select! {
+            biased;
+            _ = changes.changed() => {
+                self.stop_local().await?;
+                Ok(())
+            }
+            result = self.play_local(item, volume) => result,
+        }
+    }
+
+    async fn play_local(&self, item: PlaybackItem, volume: f32) -> Result<()> {
+        self.stop_local().await?;
 
         audio::audio_init(&self.audio)
             .await
@@ -135,15 +165,7 @@ impl PlaybackController {
             .await
             .with_context(|| format!("Could not play {}", item.title))?;
 
-        aurelia_core::report_playback_start_event(
-            item.server_url.clone(),
-            item.token.clone(),
-            item.user_id.clone(),
-            item.id.clone(),
-            Some(0),
-        )
-        .await
-        .ok();
+        self.enqueue_report(Report::Start(item.clone()));
 
         let cover_url = item.album_id.as_ref().and_then(|album_id| {
             aurelia_core::build_image_url(
@@ -180,7 +202,7 @@ impl PlaybackController {
     pub async fn pause(&self) -> Result<()> {
         audio::audio_pause(&self.audio).await?;
         let position = audio::audio_get_position(&self.audio).await?;
-        self.report_progress(position, true).await;
+        self.report_progress(position, true);
         self.media_controls
             .set_playback_status(false, Some(position))
             .ok();
@@ -190,7 +212,7 @@ impl PlaybackController {
     pub async fn resume(&self) -> Result<()> {
         audio::audio_resume(&self.audio).await?;
         let position = audio::audio_get_position(&self.audio).await?;
-        self.report_progress(position, false).await;
+        self.report_progress(position, false);
         self.media_controls
             .set_playback_status(true, Some(position))
             .ok();
@@ -211,7 +233,7 @@ impl PlaybackController {
             return Ok(());
         }
         let is_paused = !audio::audio_is_playing(&self.audio).await?;
-        self.report_progress(position_seconds, is_paused).await;
+        self.report_progress(position_seconds, is_paused);
         self.media_controls
             .set_playback_status(!is_paused, Some(position_seconds))
             .ok();
@@ -222,26 +244,25 @@ impl PlaybackController {
         audio::audio_set_volume(&self.audio, volume).await
     }
 
-    pub async fn stop(&self) -> Result<()> {
+    pub async fn stop(&self, generation: u64) -> Result<()> {
+        let _guard = self.command_lock.lock().await;
+        if *self.command_generation.borrow() != generation {
+            return Ok(());
+        }
+        self.stop_local().await
+    }
+
+    async fn stop_local(&self) -> Result<()> {
         self.begin_prepare();
         let current = self.current.lock().expect("playback state poisoned").take();
         let position = audio::audio_get_position(&self.audio).await.unwrap_or(0.0);
 
+        // Reports cannot delay stopping the local output.
+        let _ = audio::audio_stop(&self.audio).await;
         if let Some(current) = current {
-            aurelia_core::report_playback_stop_event(
-                current.item.server_url,
-                current.item.token,
-                current.item.user_id,
-                current.item.id,
-                seconds_to_ticks(position),
-            )
-            .await
-            .ok();
+            self.enqueue_report(Report::Stop(current.item, seconds_to_ticks(position)));
         }
 
-        if audio::audio_stop(&self.audio).await.is_err() {
-            // Stopping before the output has been initialized is intentionally a no-op.
-        }
         self.media_controls.clear_now_playing().ok();
         Ok(())
     }
@@ -284,7 +305,7 @@ impl PlaybackController {
             })
         };
         if should_report {
-            self.report_progress(position_seconds, false).await;
+            self.report_progress(position_seconds, false);
             self.media_controls
                 .set_playback_status(true, Some(position_seconds))
                 .ok();
@@ -303,7 +324,7 @@ impl PlaybackController {
         self.media_controls.pop_event()
     }
 
-    async fn report_progress(&self, position_seconds: f64, is_paused: bool) {
+    fn report_progress(&self, position_seconds: f64, is_paused: bool) {
         let item = self
             .current
             .lock()
@@ -314,16 +335,28 @@ impl PlaybackController {
             return;
         };
 
-        aurelia_core::report_playback_progress_event(
-            item.server_url,
-            item.token,
-            item.user_id,
-            item.id,
+        self.enqueue_report(Report::Progress(
+            item,
             seconds_to_ticks(position_seconds),
             is_paused,
-        )
-        .await
-        .ok();
+        ));
+    }
+
+    fn enqueue_report(&self, report: Report) {
+        let sender = self.reports.get_or_init(|| {
+            let (sender, mut receiver) = tokio::sync::mpsc::channel::<Report>(32);
+            tokio::spawn(async move {
+                while let Some(report) = receiver.recv().await {
+                    if let Err(error) = report.send().await {
+                        tracing::debug!("Playback report failed: {error}");
+                    }
+                }
+            });
+            sender
+        });
+        if sender.try_send(report).is_err() {
+            tracing::warn!("Playback report queue is full; discarding report");
+        }
     }
 
     fn finish_gapless_transition(&self) -> Option<u64> {
@@ -341,29 +374,11 @@ impl PlaybackController {
                 last_reported_second: 0,
             });
 
-        let started_item = prepared.item.clone();
-        tokio::spawn(async move {
-            if let Some(previous) = previous {
-                aurelia_core::report_playback_stop_event(
-                    previous.item.server_url,
-                    previous.item.token,
-                    previous.item.user_id,
-                    previous.item.id,
-                    seconds_to_ticks(f64::from(previous.item.duration_seconds)),
-                )
-                .await
-                .ok();
-            }
-            aurelia_core::report_playback_start_event(
-                started_item.server_url,
-                started_item.token,
-                started_item.user_id,
-                started_item.id,
-                Some(0),
-            )
-            .await
-            .ok();
-        });
+        if let Some(previous) = previous {
+            let ticks = seconds_to_ticks(f64::from(previous.item.duration_seconds));
+            self.enqueue_report(Report::Stop(previous.item, ticks));
+        }
+        self.enqueue_report(Report::Start(prepared.item.clone()));
         let cover_url = prepared.item.album_id.as_ref().and_then(|album_id| {
             aurelia_core::build_image_url(
                 prepared.item.server_url.clone(),
@@ -396,14 +411,86 @@ fn seconds_to_ticks(seconds: f64) -> i64 {
     (seconds.max(0.0) * 10_000_000.0).round() as i64
 }
 
+enum Report {
+    Start(PlaybackItem),
+    Progress(PlaybackItem, i64, bool),
+    Stop(PlaybackItem, i64),
+}
+
+impl Report {
+    async fn send(self) -> Result<()> {
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            match self {
+                Self::Start(item) => {
+                    aurelia_core::report_playback_start_event(
+                        item.server_url,
+                        item.token,
+                        item.id,
+                        Some(0),
+                    )
+                    .await
+                }
+                Self::Progress(item, ticks, paused) => {
+                    aurelia_core::report_playback_progress_event(
+                        item.server_url,
+                        item.token,
+                        item.id,
+                        ticks,
+                        paused,
+                    )
+                    .await
+                }
+                Self::Stop(item, ticks) => {
+                    aurelia_core::report_playback_stop_event(
+                        item.server_url,
+                        item.token,
+                        item.id,
+                        ticks,
+                    )
+                    .await
+                }
+            }
+        })
+        .await??;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::seconds_to_ticks;
+    use super::{PlaybackController, PlaybackItem};
 
     #[test]
     fn playback_seconds_convert_to_jellyfin_ticks() {
         assert_eq!(seconds_to_ticks(0.0), 0);
         assert_eq!(seconds_to_ticks(1.5), 15_000_000);
         assert_eq!(seconds_to_ticks(-4.0), 0);
+    }
+
+    #[tokio::test]
+    async fn stale_play_command_never_initializes_audio_or_changes_current_track() {
+        let controller = PlaybackController::new();
+        let old = controller.begin_command();
+        let current = controller.begin_command();
+        let item = PlaybackItem {
+            server_url: "http://127.0.0.1:1".into(),
+            token: String::new(),
+            id: "old".into(),
+            title: "Old selection".into(),
+            artist: String::new(),
+            album: String::new(),
+            album_id: None,
+            container: None,
+            duration_seconds: 1,
+        };
+        controller.play(item, 1.0, old).await.unwrap();
+        assert!(controller.current.lock().unwrap().is_none());
+        assert!(
+            aurelia_core::audio::audio_is_playing(&controller.audio)
+                .await
+                .is_err()
+        );
+        controller.stop(current).await.unwrap();
     }
 }

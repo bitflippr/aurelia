@@ -477,12 +477,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to fetch artist details: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         let response_json: serde_json::Value = response.json().await?;
         self.parse_single_artist(&response_json)
@@ -508,12 +503,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to fetch album details: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         let response_json: serde_json::Value = response.json().await?;
         Ok(self.parse_single_album(&response_json))
@@ -533,12 +523,7 @@ impl JellyfinClient {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            return Err(AppError::Network(format!(
-                "Failed to fetch artists: HTTP {}",
-                response.status()
-            )));
-        }
+        response.error_for_status_ref()?;
 
         let response_text = response.text().await?;
 
@@ -580,12 +565,7 @@ impl JellyfinClient {
                 .send()
                 .await?;
 
-            if !response.status().is_success() {
-                return Err(AppError::Network(format!(
-                    "Failed to fetch artists (Items): HTTP {}",
-                    response.status()
-                )));
-            }
+            response.error_for_status_ref()?;
 
             let response_json: serde_json::Value = response.json().await?;
 

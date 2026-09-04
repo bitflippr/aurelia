@@ -12,7 +12,6 @@ import uniffi.aurelia_core.AppException
 import uniffi.aurelia_core.AuthRequest
 import uniffi.aurelia_core.BackendProvider
 import uniffi.aurelia_core.authenticate
-import uniffi.aurelia_core.detectProvider
 
 class LoginViewModel(
   private val sessionStore: SessionStore,
@@ -24,7 +23,7 @@ class LoginViewModel(
   val state: StateFlow<LoginState> = mutableState
 
   fun updateServerUrl(value: String) {
-    mutableState.update { it.copy(serverUrl = value, detectedProvider = null) }
+    mutableState.update { it.copy(serverUrl = value) }
   }
 
   fun updateUsername(value: String) {
@@ -33,40 +32,6 @@ class LoginViewModel(
 
   fun updatePassword(value: String) {
     mutableState.update { it.copy(password = value) }
-  }
-
-  fun updateProviderSelection(selection: LoginProviderSelection) {
-    mutableState.update { it.copy(providerSelection = selection) }
-  }
-
-  fun detectProviderNow() {
-    val current = mutableState.value
-    if (current.serverUrl.isBlank()) {
-      mutableState.update { it.copy(error = "Server URL is required to detect provider") }
-      return
-    }
-
-    mutableState.update { it.copy(isDetectingProvider = true, error = null) }
-
-    viewModelScope.launch(Dispatchers.IO) {
-      try {
-        val detectedProvider = detectProvider(current.serverUrl.trim())
-        mutableState.update {
-          it.copy(
-            isDetectingProvider = false,
-            detectedProvider = detectedProvider,
-          )
-        }
-      } catch (error: AppException) {
-        mutableState.update {
-          it.copy(isDetectingProvider = false, error = error.message ?: "Provider detection failed")
-        }
-      } catch (error: Exception) {
-        mutableState.update {
-          it.copy(isDetectingProvider = false, error = "Unexpected error: ${error.message}")
-        }
-      }
-    }
   }
 
   fun toggleDynamicColor(enabled: Boolean) {
@@ -87,15 +52,16 @@ class LoginViewModel(
       try {
         val resolvedProvider = BackendProvider.JELLYFIN
 
-        val response = authenticate(
-          AuthRequest(
-            provider = resolvedProvider,
-            serverUrl = current.serverUrl.trim(),
-            username = current.username,
-            password = current.password,
-            deviceId = sessionStore.getDeviceId(),
-          ),
-        )
+        val response =
+          authenticate(
+            AuthRequest(
+              provider = resolvedProvider,
+              serverUrl = current.serverUrl.trim(),
+              username = current.username,
+              password = current.password,
+              deviceId = sessionStore.getDeviceId(),
+            ),
+          )
         sessionStore.save(
           serverUrl = current.serverUrl.trim(),
           userId = response.userId,
@@ -108,7 +74,6 @@ class LoginViewModel(
             isSubmitting = false,
             token = response.token,
             userId = response.userId,
-            detectedProvider = resolvedProvider,
           )
         }
       } catch (error: AppException) {

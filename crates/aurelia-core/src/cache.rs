@@ -1,5 +1,5 @@
 use crate::db;
-use crate::models::{Album, Artist, Credentials, Song};
+use crate::models::{Credentials, Song};
 use anyhow::{Result, anyhow};
 use redb::ReadableDatabase;
 use serde_json;
@@ -10,34 +10,20 @@ fn open_db(app_data_dir: &PathBuf) -> Result<Arc<redb::Database>> {
     db::open(app_data_dir)
 }
 
-fn activate_db(app_data_dir: &PathBuf) -> Result<Arc<redb::Database>> {
-    db::init(app_data_dir)?;
-    db::open(app_data_dir)
-}
-
-pub fn sync_library(
-    app_data_dir: PathBuf,
-    songs: &[Song],
-    artists: &[Artist],
-    albums: &[Album],
-) -> Result<()> {
-    let _database = activate_db(&app_data_dir)?;
-    db::sync_all(songs, artists, albums)
+pub fn replace_songs(app_data_dir: PathBuf, songs: &[Song]) -> Result<()> {
+    let database = open_db(&app_data_dir)?;
+    crate::domain::services::LibraryService::new(database).replace_songs(songs)?;
+    Ok(())
 }
 
 pub fn get_songs(app_data_dir: PathBuf) -> Result<Vec<Song>> {
-    let _database = activate_db(&app_data_dir)?;
-    db::songs::get_all()
+    let database = open_db(&app_data_dir)?;
+    db::songs::get_all(&database)
 }
 
 pub fn clear_cache(app_data_dir: PathBuf) -> Result<()> {
-    let _database = activate_db(&app_data_dir)?;
-    db::songs::clear()?;
-    db::artists::clear()?;
-    db::albums::clear()?;
-    tracing::info!("clear_cache: cache cleared, now resetting sync state");
-    db::reset_sync_state()?;
-    tracing::info!("clear_cache: sync state reset complete");
+    let database = open_db(&app_data_dir)?;
+    crate::domain::services::LibraryService::new(database).clear_library()?;
     Ok(())
 }
 
@@ -46,12 +32,13 @@ pub fn update_song_favorite_status(
     song_id: &str,
     is_favorite: bool,
 ) -> Result<()> {
-    let _database = activate_db(&app_data_dir)?;
-    db::songs::update_favorite_status(song_id, is_favorite)
+    let database = open_db(&app_data_dir)?;
+    crate::domain::services::LibraryService::new(database).update_favorite(song_id, is_favorite)?;
+    Ok(())
 }
 
 pub fn get_sync_state(app_data_dir: PathBuf) -> Result<String> {
-    let database = activate_db(&app_data_dir)?;
+    let database = open_db(&app_data_dir)?;
     let service = crate::domain::services::LibraryService::new(database);
     let state = service
         .get_sync_state()
@@ -61,7 +48,7 @@ pub fn get_sync_state(app_data_dir: PathBuf) -> Result<String> {
 }
 
 pub fn set_sync_state(app_data_dir: PathBuf, state_json: &str) -> Result<()> {
-    let database = activate_db(&app_data_dir)?;
+    let database = open_db(&app_data_dir)?;
     let service = crate::domain::services::LibraryService::new(database);
     let state = serde_json::from_str(state_json)?;
     service
@@ -137,19 +124,8 @@ pub fn delete_setting(app_data_dir: PathBuf, key: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Album, Artist, Credentials, Song};
-    use once_cell::sync::OnceCell;
-    use serial_test::serial;
+    use crate::models::{Credentials, Song};
     use tempfile::TempDir;
-
-    fn init_db() -> PathBuf {
-        static TEST_DIR: OnceCell<TempDir> = OnceCell::new();
-        let dir = TEST_DIR.get_or_init(|| TempDir::new().expect("temp dir"));
-        let path = dir.path().to_path_buf();
-        db::init(&path).expect("db init");
-        db::reset_for_tests().expect("db reset");
-        path
-    }
 
     fn song(id: &str) -> Song {
         Song {
@@ -184,22 +160,19 @@ mod tests {
     }
 
     #[test]
-    #[serial]
-    fn sync_and_load_songs() {
-        let app_dir = init_db();
+    fn replace_and_load_songs() {
+        let dir = TempDir::new().expect("temp dir");
+        let app_dir = dir.path().to_path_buf();
         let songs = vec![song("s1"), song("s2")];
-        let artists: Vec<Artist> = Vec::new();
-        let albums: Vec<Album> = Vec::new();
-
-        sync_library(app_dir.clone(), &songs, &artists, &albums).expect("sync");
+        replace_songs(app_dir.clone(), &songs).expect("replace");
         let loaded = get_songs(app_dir).expect("load");
         assert_eq!(loaded.len(), 2);
     }
 
     #[test]
-    #[serial]
     fn save_and_clear_credentials() {
-        let app_dir = init_db();
+        let dir = TempDir::new().expect("temp dir");
+        let app_dir = dir.path().to_path_buf();
         let creds = Credentials {
             provider: crate::models::BackendProvider::Jellyfin,
             server_url: "http://localhost:8096".to_string(),
@@ -222,10 +195,10 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn load_credentials_defaults_provider_for_previous_record() {
-        let app_dir = init_db();
-        let database = db::get().expect("database");
+        let dir = TempDir::new().expect("temp dir");
+        let app_dir = dir.path().to_path_buf();
+        let database = db::open(&app_dir).expect("database");
         let write_txn = database.begin_write().expect("write txn");
         {
             let mut table = write_txn
@@ -249,7 +222,6 @@ mod tests {
     }
 
     #[test]
-    #[serial]
     fn concurrent_base_and_profile_databases_do_not_deadlock() {
         let base = TempDir::new().expect("base dir");
         let profile = TempDir::new().expect("profile dir");

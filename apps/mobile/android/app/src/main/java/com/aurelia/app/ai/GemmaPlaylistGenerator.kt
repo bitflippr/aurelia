@@ -34,17 +34,24 @@ class GemmaPlaylistGenerator {
       require(request.prompt.isNotBlank()) { "Describe the playlist you want" }
       require(candidates.isNotEmpty()) { "Sync your library before generating a playlist" }
       AiDebugLog.clear()
-      AiDebugLog.info("Smart playlist request: target=${request.targetCount}, candidates=${candidates.size}, promptChars=${request.prompt.length}")
+      AiDebugLog.info(
+        "Smart playlist request: target=${request.targetCount}, candidates=${candidates.size}, promptChars=${request.prompt.length}",
+      )
 
-      val modelPath = runtimeConfig.modelPath?.takeIf { it.isNotBlank() }
-        ?: error("Gemma model path is not configured")
+      val modelPath =
+        runtimeConfig.modelPath?.takeIf { it.isNotBlank() }
+          ?: error("Gemma model path is not configured")
       val modelFile = File(modelPath)
       if (!modelFile.exists()) {
-        error("Gemma model not found at ${modelFile.absolutePath}. Put a .litertlm model in ${modelFile.parentFile?.absolutePath ?: "the configured model folder"}.")
+        error(
+          "Gemma model not found at ${modelFile.absolutePath}. Put a .litertlm model in ${modelFile.parentFile?.absolutePath ?: "the configured model folder"}.",
+        )
       }
 
       val cacheDir = runtimeConfig.cacheDir?.takeIf { it.isNotBlank() }
-      AiDebugLog.info("Gemma model=${modelFile.name}, sizeMb=${modelFile.length() / (1024 * 1024)}, cacheDir=${cacheDir ?: "default"}")
+      AiDebugLog.info(
+        "Gemma model=${modelFile.name}, sizeMb=${modelFile.length() / (1024 * 1024)}, cacheDir=${cacheDir ?: "default"}",
+      )
       val backends = listOf(Backend.GPU(), Backend.CPU())
       var lastError: Throwable? = null
       for (backend in backends) {
@@ -71,58 +78,70 @@ class GemmaPlaylistGenerator {
     cacheDir: String?,
     backend: Backend,
   ): SmartPlaylistPreview {
-    val engineConfig = EngineConfig(
-      modelPath = modelPath,
-      backend = backend,
-      cacheDir = cacheDir,
-    )
-      Engine(engineConfig).use { engine ->
-        AiDebugLog.info("Initializing LiteRT-LM engine backend=${backend.name}")
-        engine.initialize()
-        AiDebugLog.info("LiteRT-LM engine initialized backend=${backend.name}")
+    val engineConfig =
+      EngineConfig(
+        modelPath = modelPath,
+        backend = backend,
+        cacheDir = cacheDir,
+      )
+    Engine(engineConfig).use { engine ->
+      AiDebugLog.info("Initializing LiteRT-LM engine backend=${backend.name}")
+      engine.initialize()
+      AiDebugLog.info("LiteRT-LM engine initialized backend=${backend.name}")
 
-        val libraryTool = PlaylistLibraryTool(candidates)
-        val conversationConfig = ConversationConfig(
+      val libraryTool = PlaylistLibraryTool(candidates)
+      val conversationConfig =
+        ConversationConfig(
           systemInstruction = Contents.of(GEMMA_SYSTEM_INSTRUCTION),
           tools = listOf(tool(libraryTool)),
-          samplerConfig = SamplerConfig(
-            topK = 40,
-            topP = 0.92,
-            temperature = 0.35,
-            seed = 21,
-          ),
+          samplerConfig =
+            SamplerConfig(
+              topK = 40,
+              topP = 0.92,
+              temperature = 0.35,
+              seed = 21,
+            ),
           automaticToolCalling = false,
         )
 
-        engine.createConversation(conversationConfig).use { conversation ->
-          val prompt = SmartPlaylistPlanner.buildGemmaPrompt(request)
-          AiDebugLog.info("Gemma prompt chars=${prompt.length}")
-          var message = conversation.sendMessage(Message.user(prompt))
-          repeat(MAX_TOOL_ROUNDS) { round ->
-            AiDebugLog.info("Gemma round=${round + 1}, textChars=${message.text().length}, toolCalls=${message.toolCalls.size}")
-            if (message.toolCalls.isEmpty()) {
-              error("Gemma did not call submit_playlist")
-            }
+      engine.createConversation(conversationConfig).use { conversation ->
+        val prompt = SmartPlaylistPlanner.buildGemmaPrompt(request)
+        AiDebugLog.info("Gemma prompt chars=${prompt.length}")
+        var message = conversation.sendMessage(Message.user(prompt))
+        repeat(MAX_TOOL_ROUNDS) { round ->
+          AiDebugLog.info(
+            "Gemma round=${round + 1}, textChars=${message.text().length}, toolCalls=${message.toolCalls.size}",
+          )
+          if (message.toolCalls.isEmpty()) {
+            error("Gemma did not call submit_playlist")
+          }
 
-            val toolResponses = message.toolCalls.map { toolCall ->
+          val toolResponses =
+            message.toolCalls.map { toolCall ->
               Content.ToolResponse(toolCall.name, libraryTool.execute(toolCall))
             }
 
-            libraryTool.submittedPlaylist?.let { submittedPlaylist ->
-              val wanted = request.targetCount.coerceIn(MIN_SMART_PLAYLIST_SIZE, MAX_SMART_PLAYLIST_SIZE)
-              if (submittedPlaylist.aliases.size >= wanted || candidates.size < wanted) {
-                AiDebugLog.info("Using submit_playlist result: aliases=${submittedPlaylist.aliases.size}")
-                return SmartPlaylistPlanner.validateSubmittedPlaylist(submittedPlaylist, candidates, request.targetCount)
-              }
-              AiDebugLog.warn("Gemma submitted ${submittedPlaylist.aliases.size}/$wanted aliases; requesting completion")
+          libraryTool.submittedPlaylist?.let { submittedPlaylist ->
+            val wanted = request.targetCount.coerceIn(MIN_SMART_PLAYLIST_SIZE, MAX_SMART_PLAYLIST_SIZE)
+            if (submittedPlaylist.aliases.size >= wanted || candidates.size < wanted) {
+              AiDebugLog.info("Using submit_playlist result: aliases=${submittedPlaylist.aliases.size}")
+              return SmartPlaylistPlanner.validateSubmittedPlaylist(
+                submittedPlaylist,
+                candidates,
+                request.targetCount,
+              )
             }
-
-            message = conversation.sendMessage(Message.tool(Contents.of(toolResponses)))
+            AiDebugLog.warn(
+              "Gemma submitted ${submittedPlaylist.aliases.size}/$wanted aliases; requesting completion",
+            )
           }
-          error("Gemma did not call submit_playlist within $MAX_TOOL_ROUNDS tool rounds")
+
+          message = conversation.sendMessage(Message.tool(Contents.of(toolResponses)))
         }
+        error("Gemma did not call submit_playlist within $MAX_TOOL_ROUNDS tool rounds")
       }
     }
+  }
 
   private fun Message.text(): String =
     contents.contents
@@ -147,29 +166,36 @@ private class PlaylistLibraryTool(
   fun execute(toolCall: ToolCall): Map<String, Any> {
     AiDebugLog.info("Gemma requested tool=${toolCall.name}")
     return when (toolCall.name) {
-      "search_songs" -> searchSongs(
-        query = toolCall.arguments.stringValue("query"),
-        limit = toolCall.arguments.intValue("limit", 24),
-      )
-      "list_songs" -> listSongs(
-        offset = toolCall.arguments.intValue("offset", 0),
-        limit = toolCall.arguments.intValue("limit", 24),
-      )
-      "get_songs" -> getSongs(
-        aliasesCsv = toolCall.arguments.aliasesCsvValue(),
-      )
-      "submit_playlist" -> submitPlaylist(
-        name = toolCall.arguments.stringValue("name").ifBlank { "Smart Playlist" },
-        description = toolCall.arguments.stringValue("description"),
-        aliasesCsv = toolCall.arguments.aliasesCsvValue(),
-      )
-      else -> mapOf(
-        "error" to "Unknown tool: ${toolCall.name}",
-      )
+      "search_songs" ->
+        searchSongs(
+          query = toolCall.arguments.stringValue("query"),
+          limit = toolCall.arguments.intValue("limit", 24),
+        )
+      "list_songs" ->
+        listSongs(
+          offset = toolCall.arguments.intValue("offset", 0),
+          limit = toolCall.arguments.intValue("limit", 24),
+        )
+      "get_songs" ->
+        getSongs(
+          aliasesCsv = toolCall.arguments.aliasesCsvValue(),
+        )
+      "submit_playlist" ->
+        submitPlaylist(
+          name = toolCall.arguments.stringValue("name").ifBlank { "Smart Playlist" },
+          description = toolCall.arguments.stringValue("description"),
+          aliasesCsv = toolCall.arguments.aliasesCsvValue(),
+        )
+      else ->
+        mapOf(
+          "error" to "Unknown tool: ${toolCall.name}",
+        )
     }
   }
 
-  @Tool(description = "Search the user's complete music library by title, artist, album, genre, year, or free-form playlist request terms.")
+  @Tool(
+    description = "Search the music library by title, artist, album, genre, year, or playlist request terms.",
+  )
   fun searchSongs(
     @ToolParam(description = "Search text, such as an artist, genre, era, mood, or the user's playlist request.")
     query: String,
@@ -220,7 +246,12 @@ private class PlaylistLibraryTool(
     @ToolParam(description = "Comma-separated aliases, for example s1,s22,s103.")
     aliasesCsv: String,
   ): Map<String, Any> {
-    val aliases = aliasesCsv.split(',').map { it.trim() }.filter { it.isNotBlank() }.distinct()
+    val aliases =
+      aliasesCsv
+        .split(',')
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinct()
     val songs = aliases.mapNotNull { byAlias[it] }.map { it.summary() }
     AiDebugLog.info("Gemma tool getSongs requested=${aliases.size}, returned=${songs.size}")
     return mapOf(
@@ -230,7 +261,9 @@ private class PlaylistLibraryTool(
     )
   }
 
-  @Tool(description = "Submit the final playlist selection to the app. Call this once you have selected the final ordered aliases.")
+  @Tool(
+    description = "Submit the final playlist selection after choosing the final ordered aliases.",
+  )
   fun submitPlaylist(
     @ToolParam(description = "Short playlist name.")
     name: String,
@@ -302,8 +335,7 @@ private class PlaylistLibraryTool(
 
   private fun Song.safeName(): String = runCatching { name }.getOrNull().orEmpty()
 
-  private fun Map<String, Any?>.stringValue(name: String): String =
-    this[name]?.toString().orEmpty()
+  private fun Map<String, Any?>.stringValue(name: String): String = this[name]?.toString().orEmpty()
 
   private fun Map<String, Any?>.intValue(
     name: String,

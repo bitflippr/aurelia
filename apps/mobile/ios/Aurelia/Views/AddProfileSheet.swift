@@ -114,10 +114,10 @@ struct AddProfileSheet: View {
                     )
                 )
 
-                await MainActor.run {
+                try await MainActor.run {
                     let sessionStore = SessionStore.shared
                     let previousProfileId = sessionStore.getActiveProfileId()
-                    sessionStore.save(
+                    try sessionStore.save(
                         serverUrl: serverUrl,
                         userId: response.userId,
                         token: response.token,
