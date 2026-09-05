@@ -13,10 +13,7 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -49,7 +46,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.QueueMusic
-import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -66,7 +62,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -74,11 +69,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
@@ -99,7 +96,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
@@ -109,20 +105,19 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.palette.graphics.Palette
 import coil.ImageLoader
 import coil.compose.AsyncImage
-import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.aurelia.app.audio.AudioManager
 import com.aurelia.app.audio.VisualizerStyle
 import com.aurelia.app.data.model.Lyrics
 import com.aurelia.app.data.model.SyncedLine
-import com.aurelia.app.player.PlayerController
 import com.aurelia.app.player.RepeatMode
 import com.aurelia.app.storage.SessionStore
 import com.aurelia.app.ui.components.AlbumArt
@@ -131,7 +126,6 @@ import com.aurelia.app.ui.components.AudioVisualizer
 import com.aurelia.app.ui.components.VisualizerFrameMetrics
 import com.aurelia.app.ui.components.WavyMusicSlider
 import com.aurelia.app.ui.navigation.Screen
-import com.aurelia.app.ui.theme.SquircleShape
 import com.aurelia.app.ui.theme.rememberNowPlayingStyle
 import com.aurelia.app.utils.formatDuration
 import com.aurelia.app.utils.optimizedArtworkUrl
@@ -152,7 +146,7 @@ private val albumArtColorCache = LinkedHashMap<String, AlbumArtColors>(ALBUM_COL
 /**
  * Data class holding dynamically extracted colors from album art.
  */
-private data class AlbumArtColors(
+internal data class AlbumArtColors(
   val primary: Color,
   val secondary: Color,
   val accent: Color,
@@ -267,6 +261,49 @@ private fun rememberAlbumArtColors(
   }
 
   return colors
+}
+
+@Composable
+internal fun rememberPlayerAlbumColors(albumArtUrl: String?): AlbumArtColors {
+  val colors = MaterialTheme.colorScheme
+  val miniPlayerSeedColors =
+    remember(colors.primary, colors.primaryContainer, colors.onPrimary) {
+      val luminance = (0.299 * colors.primary.red + 0.587 * colors.primary.green + 0.114 * colors.primary.blue)
+      AlbumArtColors(
+        primary = colors.primary,
+        secondary = colors.primaryContainer,
+        accent = colors.primary,
+        onPrimary = if (luminance > 0.5f) Color.Black else Color.White,
+        isLight = luminance > 0.6f,
+      )
+    }
+
+  return rememberAlbumArtColors(albumArtUrl, miniPlayerSeedColors)
+}
+
+@Composable
+internal fun PlayerBackdrop(
+  albumArtUrl: String?,
+  sessionStore: SessionStore,
+  modifier: Modifier = Modifier,
+) {
+  val context = LocalContext.current
+  val debuggable = remember(context) { (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 }
+  PlayerBackdrop(
+    albumArtUrl = albumArtUrl,
+    disableBlur = remember(sessionStore, debuggable) { debuggable && sessionStore.getDebugDisablePlayerBackdropBlur() },
+    disableImageLayer =
+      remember(sessionStore, debuggable) {
+        debuggable &&
+          sessionStore.getDebugDisablePlayerBackdropImageLayer()
+      },
+    disableTransitions =
+      remember(sessionStore, debuggable) {
+        debuggable &&
+          sessionStore.getDebugDisablePlayerTransitions()
+      },
+    modifier = modifier,
+  )
 }
 
 /**
@@ -398,7 +435,7 @@ private fun PlayerBackdrop(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerScreen(
-  playerController: PlayerController,
+  viewModel: PlayerViewModel,
   sessionStore: com.aurelia.app.storage.SessionStore,
   onBack: () -> Unit,
   onNavigateToAlbum: (Screen.AlbumDetail) -> Unit = {},
@@ -428,10 +465,6 @@ fun PlayerScreen(
       isDebuggable && sessionStore.getDebugDisablePlayerTransitions()
     }
 
-  val viewModel: PlayerViewModel =
-    viewModel(
-      factory = viewModelFactory { PlayerViewModel(playerController, sessionStore) },
-    )
   val state by viewModel.state.collectAsStateWithLifecycle()
   val playbackPositionState =
     rememberPlaybackPositionState(
@@ -448,17 +481,6 @@ fun PlayerScreen(
   val scope = rememberCoroutineScope()
 
   val colors = MaterialTheme.colorScheme
-  val miniPlayerSeedColors =
-    remember(colors.primary, colors.primaryContainer, colors.onPrimary) {
-      val luminance = (0.299 * colors.primary.red + 0.587 * colors.primary.green + 0.114 * colors.primary.blue)
-      AlbumArtColors(
-        primary = colors.primary,
-        secondary = colors.primaryContainer,
-        accent = colors.primary,
-        onPrimary = if (luminance > 0.5f) Color.Black else Color.White,
-        isLight = luminance > 0.6f,
-      )
-    }
 
   // Visualizer state
   val visualizerEnabled = remember(sessionStore) { sessionStore.getVisualizerEnabled() }
@@ -473,7 +495,14 @@ fun PlayerScreen(
     }
 
   // Extract dynamic colors from album art
-  val albumColors = rememberAlbumArtColors(state.albumArtUrl, miniPlayerSeedColors)
+  val albumColors = rememberPlayerAlbumColors(state.albumArtUrl)
+  val morph = LocalPlayerMorph.current
+  val supportingContentModifier =
+    Modifier.playerSupportingContent(
+      sharedTransitionScope = sharedTransitionScope,
+      expansion = morph?.expansion ?: 1f,
+      collapsedContentBottom = morph?.collapsedContentBottom ?: 0f,
+    )
 
   // Animate color transitions
   val colorAnimationSpec = tween<Color>(durationMillis = if (disablePlayerTransitions) 0 else 500)
@@ -500,14 +529,16 @@ fun PlayerScreen(
     }
 
   Box(modifier = modifier.fillMaxSize()) {
-    // Blurred album art background
-    PlayerBackdrop(
-      albumArtUrl = state.albumArtUrl,
-      disableBlur = disableBackdropBlur,
-      disableImageLayer = disableBackdropImageLayer,
-      disableTransitions = disablePlayerTransitions,
-      modifier = Modifier.fillMaxSize(),
-    )
+    // The shared sheet owns the backdrop throughout the mini/full morph.
+    if (LocalPlayerMorph.current == null) {
+      PlayerBackdrop(
+        albumArtUrl = state.albumArtUrl,
+        disableBlur = disableBackdropBlur,
+        disableImageLayer = disableBackdropImageLayer,
+        disableTransitions = disablePlayerTransitions,
+        modifier = Modifier.fillMaxSize(),
+      )
+    }
 
     FullscreenVisualizer(
       visualizerEnabled = visualizerEnabled,
@@ -528,7 +559,12 @@ fun PlayerScreen(
         modifier =
           Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .playerSupportingContent(
+              sharedTransitionScope = sharedTransitionScope,
+              expansion = morph?.expansion ?: 1f,
+              collapsedContentBottom = morph?.collapsedContentBottom ?: 0f,
+              role = PlayerSupportingRole.Header,
+            ).padding(horizontal = 16.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
       ) {
@@ -599,109 +635,35 @@ fun PlayerScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceEvenly,
       ) {
-        if (state.showLyrics) {
-          SyncedLyricsPanel(
-            lyrics = state.lyrics,
-            positionState = playbackPositionState,
-            onLineClick = { timeMs -> viewModel.seekTo(timeMs.toLong()) },
-            primaryColor = primaryColor,
-            modifier =
-              Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp)
-                .aspectRatio(1f),
-          )
-        } else {
-          Box(
-            modifier =
-              Modifier
-                .fillMaxWidth()
-                .padding(vertical = 16.dp)
-                .aspectRatio(1f),
-          ) {
-            Surface(
+        PlayerArtworkLyricsTransition(
+          lyricsAlpha = morph?.lyricsAlpha ?: if (state.showLyrics) 1f else 0f,
+          sharedTransitionScope = sharedTransitionScope,
+          modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp).aspectRatio(1f),
+        ) { showLyrics, layerModifier ->
+          if (showLyrics) {
+            SyncedLyricsPanel(
+              lyrics = state.lyrics,
+              positionState = playbackPositionState,
+              onLineClick = { timeMs -> viewModel.seekTo(timeMs.toLong()) },
+              primaryColor = primaryColor,
+              modifier = layerModifier.fillMaxSize(),
+            )
+          } else {
+            PlayerArtwork(
               modifier =
                 Modifier
                   .playerSharedElement(
                     sharedTransitionScope = sharedTransitionScope,
                     animatedVisibilityScope = animatedVisibilityScope,
                     key = playerSharedKey(sharedContentKey, "artwork"),
-                  ).fillMaxSize()
-                  .clip(SquircleShape)
-                  .clickable(
-                    enabled = !state.currentAlbumId.isNullOrBlank(),
-                    onClick = {
-                      state.currentAlbumId?.let { id ->
-                        onNavigateToAlbum(
-                          Screen.AlbumDetail(
-                            id,
-                            state.currentAlbumName ?: "Unknown Album",
-                          ),
-                        )
-                      }
-                    },
-                  ),
-              color = colors.surfaceVariant,
-              tonalElevation = 8.dp,
-              shadowElevation = 12.dp,
-              shape = SquircleShape,
-            ) {
-              if (state.albumArtUrl.isNullOrBlank()) {
-                Box(
-                  modifier = Modifier.fillMaxSize(),
-                  contentAlignment = Alignment.Center,
-                ) {
-                  Icon(
-                    imageVector = Icons.Filled.Album,
-                    contentDescription = null,
-                    modifier = Modifier.size(64.dp),
-                    tint = colors.onSurfaceVariant.copy(alpha = 0.3f),
-                  )
-                }
-              } else {
-                val context = LocalContext.current
-                val screenWidth = LocalConfiguration.current.screenWidthDp
-                val artworkSize = with(LocalDensity.current) { minOf(400.dp, screenWidth.dp).toPx().toInt() }
-                SubcomposeAsyncImage(
-                  model =
-                    ImageRequest
-                      .Builder(context)
-                      .data(optimizedArtworkUrl(state.albumArtUrl, artworkSize))
-                      .crossfade(true)
-                      .size(artworkSize)
-                      .build(),
-                  contentDescription = "Album art",
-                  modifier = Modifier.fillMaxSize(),
-                  contentScale = ContentScale.Crop,
-                  loading = {
-                    Box(
-                      modifier = Modifier.fillMaxSize(),
-                      contentAlignment = Alignment.Center,
-                    ) {
-                      Icon(
-                        imageVector = Icons.Filled.Album,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = colors.onSurfaceVariant.copy(alpha = 0.3f),
-                      )
+                  ).then(layerModifier)
+                  .fillMaxSize()
+                  .clickable(enabled = !state.showLyrics && !state.currentAlbumId.isNullOrBlank()) {
+                    state.currentAlbumId?.let { id ->
+                      onNavigateToAlbum(Screen.AlbumDetail(id, state.currentAlbumName ?: "Unknown Album"))
                     }
                   },
-                  error = {
-                    Box(
-                      modifier = Modifier.fillMaxSize(),
-                      contentAlignment = Alignment.Center,
-                    ) {
-                      Icon(
-                        imageVector = Icons.Filled.Album,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = colors.onSurfaceVariant.copy(alpha = 0.3f),
-                      )
-                    }
-                  },
-                )
-              }
-            }
+            )
           }
         }
 
@@ -756,6 +718,7 @@ fun PlayerScreen(
             Spacer(modifier = Modifier.height(4.dp))
             Text(
               text = info,
+              modifier = supportingContentModifier,
               style = MaterialTheme.typography.labelSmall,
               color = Color.White.copy(alpha = 0.55f),
               maxLines = 1,
@@ -774,7 +737,13 @@ fun PlayerScreen(
             accentColor = primaryColor,
             isVisible = isVisible,
             onSeekTo = { targetPosition -> viewModel.seekTo(targetPosition) },
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+              Modifier.fillMaxWidth().playerSupportingContent(
+                sharedTransitionScope = sharedTransitionScope,
+                expansion = morph?.expansion ?: 1f,
+                collapsedContentBottom = morph?.collapsedContentBottom ?: 0f,
+                role = PlayerSupportingRole.SeekBar,
+              ),
           )
         }
 
@@ -791,19 +760,19 @@ fun PlayerScreen(
           height = 80.dp,
           primaryColor = primaryColor,
           previousModifier =
-            Modifier.playerSharedBounds(
+            Modifier.playerSharedElement(
               sharedTransitionScope = sharedTransitionScope,
               animatedVisibilityScope = animatedVisibilityScope,
               key = playerSharedKey(sharedContentKey, "previous"),
             ),
           playPauseModifier =
-            Modifier.playerSharedBounds(
+            Modifier.playerSharedElement(
               sharedTransitionScope = sharedTransitionScope,
               animatedVisibilityScope = animatedVisibilityScope,
               key = playerSharedKey(sharedContentKey, "play-pause"),
             ),
           nextModifier =
-            Modifier.playerSharedBounds(
+            Modifier.playerSharedElement(
               sharedTransitionScope = sharedTransitionScope,
               animatedVisibilityScope = animatedVisibilityScope,
               key = playerSharedKey(sharedContentKey, "next"),
@@ -821,6 +790,13 @@ fun PlayerScreen(
           onRepeatClick = { viewModel.cycleRepeatMode() },
           primaryColor = primaryColor,
           onFavoriteClick = { viewModel.toggleFavorite() },
+          modifier =
+            Modifier.playerSupportingContent(
+              sharedTransitionScope = sharedTransitionScope,
+              expansion = morph?.expansion ?: 1f,
+              collapsedContentBottom = morph?.collapsedContentBottom ?: 0f,
+              role = PlayerSupportingRole.Footer,
+            ),
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -938,7 +914,7 @@ private fun SyncedLyricsPanel(
     positionState = positionState,
     onLineClick = onLineClick,
     primaryColor = primaryColor,
-    modifier = modifier,
+    modifier = modifier.lyricsFadingEdges(),
   )
 }
 
@@ -1055,6 +1031,8 @@ private fun AnimatedPlaybackControls(
       animationSpec = animationSpec,
       label = "prevWeight",
     )
+    val morph = LocalPlayerMorph.current
+    val buttonPrimary = morph?.primary ?: primaryColor
     val prevBgAlpha = if (hasPrevious) 0.15f else 0.08f
     val prevIconAlpha = if (hasPrevious) 1f else 0.4f
     Box(
@@ -1063,7 +1041,7 @@ private fun AnimatedPlaybackControls(
           .weight(prevWeight)
           .fillMaxHeight()
           .clip(CircleShape)
-          .background(primaryColor.copy(alpha = prevBgAlpha))
+          .background(morph?.skipBackground(hasPrevious) ?: primaryColor.copy(alpha = prevBgAlpha))
           .then(
             if (hasPrevious) {
               Modifier.clickable(
@@ -1082,8 +1060,11 @@ private fun AnimatedPlaybackControls(
       Icon(
         imageVector = Icons.Filled.SkipPrevious,
         contentDescription = "Previous",
-        tint = primaryColor.copy(alpha = prevIconAlpha),
-        modifier = Modifier.size(32.dp),
+        tint = buttonPrimary.copy(alpha = prevIconAlpha),
+        modifier =
+          Modifier.size(
+            lerp(22.dp, 32.dp, LocalPlayerMorph.current?.expansion ?: 1f),
+          ),
       )
     }
 
@@ -1092,22 +1073,13 @@ private fun AnimatedPlaybackControls(
       animationSpec = animationSpec,
       label = "playWeight",
     )
-    val playCorner by animateDpAsState(
-      targetValue = if (isPlaying || isBuffering) 26.dp else 50.dp,
-      animationSpec =
-        spring(
-          dampingRatio = Spring.DampingRatioNoBouncy,
-          stiffness = Spring.StiffnessMedium,
-        ),
-      label = "playCorner",
-    )
     Box(
       modifier =
         playPauseModifier
           .weight(playWeight)
           .fillMaxHeight()
-          .clip(RoundedCornerShape(playCorner))
-          .background(primaryColor)
+          .clip(playerPlayButtonShape(isPlaying, isBuffering, fallbackExpansion = 1f))
+          .background(buttonPrimary)
           .then(
             if (!isBuffering) {
               Modifier.clickable(
@@ -1124,13 +1096,16 @@ private fun AnimatedPlaybackControls(
       contentAlignment = Alignment.Center,
     ) {
       val onPrimaryColor =
-        remember(primaryColor) {
+        morph?.onPrimary ?: remember(primaryColor) {
           val luminance = (0.299 * primaryColor.red + 0.587 * primaryColor.green + 0.114 * primaryColor.blue)
           if (luminance > 0.5f) Color.Black else Color.White
         }
       if (isBuffering) {
         CircularProgressIndicator(
-          modifier = Modifier.size(32.dp),
+          modifier =
+            Modifier.size(
+              lerp(18.dp, 32.dp, LocalPlayerMorph.current?.expansion ?: 1f),
+            ),
           color = onPrimaryColor,
           strokeWidth = 3.dp,
         )
@@ -1138,7 +1113,10 @@ private fun AnimatedPlaybackControls(
         AnimatedPlayPauseIcon(
           isPlaying = isPlaying,
           tint = onPrimaryColor,
-          modifier = Modifier.size(36.dp),
+          modifier =
+            Modifier.size(
+              lerp(20.dp, 36.dp, LocalPlayerMorph.current?.expansion ?: 1f),
+            ),
         )
       }
     }
@@ -1156,7 +1134,7 @@ private fun AnimatedPlaybackControls(
           .weight(nextWeight)
           .fillMaxHeight()
           .clip(CircleShape)
-          .background(primaryColor.copy(alpha = nextBgAlpha))
+          .background(morph?.skipBackground(hasNext) ?: primaryColor.copy(alpha = nextBgAlpha))
           .then(
             if (hasNext) {
               Modifier.clickable(
@@ -1175,8 +1153,11 @@ private fun AnimatedPlaybackControls(
       Icon(
         imageVector = Icons.Filled.SkipNext,
         contentDescription = "Next",
-        tint = primaryColor.copy(alpha = nextIconAlpha),
-        modifier = Modifier.size(32.dp),
+        tint = buttonPrimary.copy(alpha = nextIconAlpha),
+        modifier =
+          Modifier.size(
+            lerp(22.dp, 32.dp, LocalPlayerMorph.current?.expansion ?: 1f),
+          ),
       )
     }
   }
@@ -1344,9 +1325,11 @@ private fun LyricsView(
       val lineHeights = remember { mutableStateMapOf<Int, Int>() }
       val density = LocalDensity.current
 
-      // Auto-scroll when the current line changes
+      var lastAutoScrolledLine by rememberSaveable(syncedLines) { mutableIntStateOf(-1) }
+      // Preserve a manually scrolled position when reopening the same lyric line.
       LaunchedEffect(currentLineIndex) {
-        if (currentLineIndex >= 0) {
+        if (currentLineIndex >= 0 && currentLineIndex != lastAutoScrolledLine) {
+          lastAutoScrolledLine = currentLineIndex
           snapshotFlow { lineHeights[currentLineIndex] }
             .collectLatest { height ->
               val offset = if (height != null) height / 2 else with(density) { 30.dp.roundToPx() }

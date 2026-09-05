@@ -1,5 +1,6 @@
 package com.aurelia.app.ui
 
+import android.content.pm.ApplicationInfo
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -8,7 +9,6 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.SeekableTransitionState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.rememberTransition
@@ -64,16 +64,20 @@ import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -98,8 +102,6 @@ import com.aurelia.app.audio.AudioManager
 import com.aurelia.app.audio.VisualizerStyle
 import com.aurelia.app.player.PlayerController
 import com.aurelia.app.storage.SessionStore
-import com.aurelia.app.ui.components.AlbumArt
-import com.aurelia.app.ui.components.AlbumArtStyle
 import com.aurelia.app.ui.components.AnimatedPlayPauseIcon
 import com.aurelia.app.ui.components.AudioVisualizer
 import com.aurelia.app.ui.components.VisualizerFrameMetrics
@@ -201,7 +203,7 @@ fun MainScreen(
     val collapsedSheetY =
       (screenHeightPx - miniPlayerHeightPx - navBarHeightPx - miniPlayerTopMarginPx)
         .coerceAtLeast(0f)
-    val playerDragOffset = remember { Animatable(collapsedSheetY) }
+    val playerDragOffset = remember { createPlayerSheetOffset(collapsedSheetY) }
     val dragProgress =
       if (collapsedSheetY > 0f) {
         ((collapsedSheetY - playerDragOffset.value) / collapsedSheetY).coerceIn(0f, 1f)
@@ -212,7 +214,16 @@ fun MainScreen(
     val sheetBottomCornerRadius = lerp(12.dp, 0.dp, dragProgress)
     val sheetHorizontalPadding = lerp(12.dp, 0.dp, dragProgress)
     val sheetHeightPx = miniPlayerHeightPx + (screenHeightPx - miniPlayerHeightPx) * dragProgress
-    val sheetHeightDp = with(density) { sheetHeightPx.toDp() }
+    val sheetShape =
+      with(density) {
+        PlayerSheetShape(
+          top = playerDragOffset.value,
+          height = sheetHeightPx,
+          horizontalInset = sheetHorizontalPadding.toPx(),
+          topRadius = sheetTopCornerRadius.toPx(),
+          bottomRadius = sheetBottomCornerRadius.toPx(),
+        )
+      }
     val fullPlayerVisible = dragProgress >= 0.55f
     val playerTransitionState = remember { SeekableTransitionState(false) }
     val playerTransition = rememberTransition(playerTransitionState, label = "mini-to-full-player")
@@ -233,6 +244,7 @@ fun MainScreen(
 
     // Keep collapsed position in sync when layout changes (e.g., initial measurement)
     LaunchedEffect(collapsedSheetY) {
+      playerDragOffset.updateBounds(lowerBound = 0f, upperBound = collapsedSheetY)
       // Only snap if player is collapsed - don't interrupt drag/expand animations
       if (dragProgress < 0.1f) {
         playerDragOffset.snapTo(collapsedSheetY)
@@ -464,6 +476,18 @@ fun MainScreen(
 
     // 3. MINIPLAYER OVERLAY
     if (libraryState.nowPlaying != null) {
+      val playerViewModel: PlayerViewModel =
+        viewModel(factory = viewModelFactory { PlayerViewModel(playerController, sessionStore) })
+      val playerState by playerViewModel.state.collectAsStateWithLifecycle()
+      val savedPlayerUi = rememberSaveableStateHolder()
+      val context = LocalContext.current
+      val transitionsEnabled =
+        remember(context, sessionStore) {
+          !(
+            (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 &&
+              sessionStore.getDebugDisablePlayerTransitions()
+          )
+        }
       // Handle predictive back gesture when player is expanded
       PredictiveBackHandler(enabled = dragProgress > 0.5f) { progress ->
         try {
@@ -484,108 +508,113 @@ fun MainScreen(
       Box(
         modifier =
           Modifier
-            .offset { IntOffset(0, playerDragOffset.value.roundToInt()) }
-            .fillMaxWidth()
-            .padding(horizontal = sheetHorizontalPadding)
-            .height(sheetHeightDp)
+            .fillMaxSize()
             .graphicsLayer {
               clip = true
-              shape =
-                RoundedCornerShape(
-                  topStart = sheetTopCornerRadius,
-                  topEnd = sheetTopCornerRadius,
-                  bottomStart = sheetBottomCornerRadius,
-                  bottomEnd = sheetBottomCornerRadius,
-                )
+              shape = sheetShape
             }.background(
               color = playerSurfaceColor,
-              shape =
-                RoundedCornerShape(
-                  topStart = sheetTopCornerRadius,
-                  topEnd = sheetTopCornerRadius,
-                  bottomStart = sheetBottomCornerRadius,
-                  bottomEnd = sheetBottomCornerRadius,
-                ),
+              shape = sheetShape,
             ).zIndex(1f),
       ) {
         val nowPlaying = libraryState.nowPlaying ?: return@Box
+        PlayerBackdrop(
+          albumArtUrl = nowPlaying.albumArtUrl,
+          sessionStore = sessionStore,
+          modifier = Modifier.fillMaxSize().alpha(dragProgress),
+        )
         val sharedContentKey =
           libraryState.currentSongId ?: "${nowPlaying.title}|${nowPlaying.artist}"
 
-        SharedTransitionLayout {
-          playerTransition.AnimatedContent(
-            modifier =
-              Modifier.playerTransitionContentLayout(
-                fullHeight = with(density) { screenHeightPx.toDp() },
-              ),
-            transitionSpec = { playerContentTransform() },
-            contentKey = { expanded -> expanded },
-          ) { expanded ->
-            if (expanded) {
-              Box(
-                modifier =
+        val morph =
+          rememberPlayerMorph(
+            dragProgress,
+            nowPlaying.albumArtUrl,
+            collapsedSheetY + miniPlayerHeightPx,
+            playerState.showLyrics,
+            transitionsEnabled,
+          )
+        CompositionLocalProvider(LocalPlayerMorph provides morph) {
+          SharedTransitionLayout {
+            playerTransition.AnimatedContent(
+              modifier = Modifier.fillMaxSize(),
+              transitionSpec = { playerContentTransform() },
+              contentKey = { expanded -> expanded },
+            ) { expanded ->
+              if (expanded) {
+                Box(
+                  modifier =
+                    Modifier
+                      .fillMaxSize()
+                      .pointerInput(Unit) {
+                        var totalDrag = 0f
+                        detectVerticalDragGestures(
+                          onVerticalDrag = { _, dragAmount ->
+                            totalDrag += dragAmount
+                            onPlayerDrag(dragAmount)
+                          },
+                          onDragEnd = {
+                            val velocity = if (totalDrag != 0f) totalDrag * 12f else 0f
+                            onPlayerDragEnd(velocity)
+                            totalDrag = 0f
+                          },
+                        )
+                      },
+                ) {
+                  savedPlayerUi.SaveableStateProvider("full-player") {
+                    PlayerScreen(
+                      viewModel = playerViewModel,
+                      sessionStore = sessionStore,
+                      onBack = { closePlayer() },
+                      modifier = Modifier.fillMaxSize(),
+                      isVisible = fullPlayerVisible,
+                      onNavigateToAlbum = {
+                        closePlayer()
+                        navController.navigate(it)
+                      },
+                      onNavigateToArtist = {
+                        closePlayer()
+                        navController.navigate(it)
+                      },
+                      sharedTransitionScope = this@SharedTransitionLayout,
+                      animatedVisibilityScope = this@AnimatedContent,
+                      sharedContentKey = sharedContentKey,
+                    )
+                  }
+                }
+              } else {
+                // Shared elements must start at their resting screen positions, even
+                // while the sheet behind them expands. Neither endpoint moves.
+                Box(
                   Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) {
-                      var totalDrag = 0f
-                      detectVerticalDragGestures(
-                        onVerticalDrag = { _, dragAmount ->
-                          totalDrag += dragAmount
-                          onPlayerDrag(dragAmount)
-                        },
-                        onDragEnd = {
-                          val velocity = if (totalDrag != 0f) totalDrag * 12f else 0f
-                          onPlayerDragEnd(velocity)
-                          totalDrag = 0f
-                        },
-                      )
-                    },
-              ) {
-                PlayerScreen(
-                  playerController = playerController,
-                  sessionStore = sessionStore,
-                  onBack = { closePlayer() },
-                  modifier = Modifier.fillMaxSize(),
-                  isVisible = fullPlayerVisible,
-                  onNavigateToAlbum = {
-                    closePlayer()
-                    navController.navigate(it)
-                  },
-                  onNavigateToArtist = {
-                    closePlayer()
-                    navController.navigate(it)
-                  },
-                  sharedTransitionScope = this@SharedTransitionLayout,
-                  animatedVisibilityScope = this@AnimatedContent,
-                  sharedContentKey = sharedContentKey,
-                )
-              }
-            } else {
-              PlayerMiniTransitionContainer(sheetHeight = sheetHeightDp) {
-                MiniPlayerBar(
-                  title = nowPlaying.title,
-                  artist = nowPlaying.artist,
-                  albumArtUrl = nowPlaying.albumArtUrl,
-                  isPlaying = nowPlaying.isPlaying,
-                  isBuffering = nowPlaying.isBuffering,
-                  hasPrevious = nowPlaying.hasPrevious,
-                  hasNext = nowPlaying.hasNext,
-                  onPrevious = { libraryViewModel.skipPrevious() },
-                  onPlayPause = { libraryViewModel.togglePlayPause() },
-                  onNext = { libraryViewModel.skipNext() },
-                  onClick = { openPlayerAnimated() },
-                  onDrag = { delta -> onPlayerDrag(delta) },
-                  onDragEnd = { velocity -> onPlayerDragEnd(velocity) },
-                  albumId = nowPlaying.albumId,
-                  artistId = nowPlaying.artistId,
-                  albumName = nowPlaying.albumName,
-                  onNavigateToAlbum = { navController.navigate(it) },
-                  onNavigateToArtist = { navController.navigate(it) },
-                  sessionStore = sessionStore,
-                  sharedTransitionScope = this@SharedTransitionLayout,
-                  animatedVisibilityScope = this@AnimatedContent,
-                  sharedContentKey = sharedContentKey,
-                )
+                    .padding(horizontal = 12.dp),
+                ) {
+                  MiniPlayerBar(
+                    modifier = Modifier.offset { IntOffset(0, collapsedSheetY.roundToInt()) },
+                    title = nowPlaying.title,
+                    artist = nowPlaying.artist,
+                    isPlaying = nowPlaying.isPlaying,
+                    isBuffering = nowPlaying.isBuffering,
+                    hasPrevious = nowPlaying.hasPrevious,
+                    hasNext = nowPlaying.hasNext,
+                    onPrevious = { libraryViewModel.skipPrevious() },
+                    onPlayPause = { libraryViewModel.togglePlayPause() },
+                    onNext = { libraryViewModel.skipNext() },
+                    onClick = { openPlayerAnimated() },
+                    onDrag = { delta -> onPlayerDrag(delta) },
+                    onDragEnd = { velocity -> onPlayerDragEnd(velocity) },
+                    albumId = nowPlaying.albumId,
+                    artistId = nowPlaying.artistId,
+                    albumName = nowPlaying.albumName,
+                    onNavigateToAlbum = { navController.navigate(it) },
+                    onNavigateToArtist = { navController.navigate(it) },
+                    sessionStore = sessionStore,
+                    sharedTransitionScope = this@SharedTransitionLayout,
+                    animatedVisibilityScope = this@AnimatedContent,
+                    sharedContentKey = sharedContentKey,
+                  )
+                }
               }
             }
           }
@@ -728,7 +757,6 @@ private fun RowScope.BottomNavItem(
 fun MiniPlayerBar(
   title: String,
   artist: String,
-  albumArtUrl: String?,
   isPlaying: Boolean,
   isBuffering: Boolean,
   hasPrevious: Boolean,
@@ -751,6 +779,8 @@ fun MiniPlayerBar(
   sharedContentKey: String? = null,
 ) {
   val colors = MaterialTheme.colorScheme
+  val morph = LocalPlayerMorph.current
+  val buttonPrimary = morph?.primary ?: colors.primary
 
   val visualizerState by AudioManager.visualizerState.collectAsStateWithLifecycle()
   val visualizerEnabled = remember(sessionStore) { sessionStore?.getVisualizerEnabled() ?: false }
@@ -828,20 +858,15 @@ fun MiniPlayerBar(
             ),
         verticalAlignment = Alignment.CenterVertically,
       ) {
-        AlbumArt(
-          imageUrl = albumArtUrl,
-          size = 44.dp,
-          cornerRadius = 22.dp,
-          style = AlbumArtStyle.Song,
-          containerColor = colors.primary.copy(alpha = 0.2f),
-          contentColor = colors.onPrimaryContainer,
+        PlayerArtwork(
           modifier =
             Modifier
               .playerSharedElement(
                 sharedTransitionScope = sharedTransitionScope,
                 animatedVisibilityScope = animatedVisibilityScope,
                 key = playerSharedKey(sharedContentKey, "artwork"),
-              ).size(44.dp)
+              ).graphicsLayer { alpha = 1f - (morph?.lyricsAlpha ?: 0f) }
+              .size(44.dp)
               .clickable(
                 enabled = !albumId.isNullOrBlank(),
                 onClick = {
@@ -908,14 +933,15 @@ fun MiniPlayerBar(
       Box(
         modifier =
           Modifier
-            .playerSharedBounds(
+            .playerSharedElement(
               sharedTransitionScope = sharedTransitionScope,
               animatedVisibilityScope = animatedVisibilityScope,
               key = playerSharedKey(sharedContentKey, "previous"),
             ).size(36.dp)
             .clip(CircleShape)
-            .background(colors.primary.copy(alpha = if (hasPrevious) 0.2f else 0.08f))
-            .then(
+            .background(
+              morph?.skipBackground(hasPrevious) ?: colors.primary.copy(alpha = if (hasPrevious) 0.2f else 0.08f),
+            ).then(
               if (hasPrevious) {
                 Modifier.clickable(
                   interactionSource = remember { MutableInteractionSource() },
@@ -931,8 +957,8 @@ fun MiniPlayerBar(
         Icon(
           imageVector = Icons.Filled.SkipPrevious,
           contentDescription = "Previous",
-          tint = colors.primary.copy(alpha = if (hasPrevious) 1f else 0.4f),
-          modifier = Modifier.size(22.dp),
+          tint = buttonPrimary.copy(alpha = if (hasPrevious) 1f else 0.4f),
+          modifier = Modifier.size(lerp(22.dp, 32.dp, LocalPlayerMorph.current?.expansion ?: 0f)),
         )
       }
 
@@ -941,13 +967,13 @@ fun MiniPlayerBar(
       Box(
         modifier =
           Modifier
-            .playerSharedBounds(
+            .playerSharedElement(
               sharedTransitionScope = sharedTransitionScope,
               animatedVisibilityScope = animatedVisibilityScope,
               key = playerSharedKey(sharedContentKey, "play-pause"),
             ).size(36.dp)
-            .clip(CircleShape)
-            .background(colors.primary)
+            .clip(playerPlayButtonShape(isPlaying, isBuffering, fallbackExpansion = 0f))
+            .background(buttonPrimary)
             .then(
               if (!isBuffering) {
                 Modifier.clickable(
@@ -963,15 +989,15 @@ fun MiniPlayerBar(
       ) {
         if (isBuffering) {
           CircularProgressIndicator(
-            modifier = Modifier.size(18.dp),
-            color = colors.onPrimary,
+            modifier = Modifier.size(lerp(18.dp, 32.dp, morph?.expansion ?: 0f)),
+            color = morph?.onPrimary ?: colors.onPrimary,
             strokeWidth = 2.dp,
           )
         } else {
           AnimatedPlayPauseIcon(
             isPlaying = isPlaying,
-            tint = colors.onPrimary,
-            modifier = Modifier.size(20.dp),
+            tint = morph?.onPrimary ?: colors.onPrimary,
+            modifier = Modifier.size(lerp(20.dp, 36.dp, morph?.expansion ?: 0f)),
           )
         }
       }
@@ -981,13 +1007,13 @@ fun MiniPlayerBar(
       Box(
         modifier =
           Modifier
-            .playerSharedBounds(
+            .playerSharedElement(
               sharedTransitionScope = sharedTransitionScope,
               animatedVisibilityScope = animatedVisibilityScope,
               key = playerSharedKey(sharedContentKey, "next"),
             ).size(36.dp)
             .clip(CircleShape)
-            .background(colors.primary.copy(alpha = if (hasNext) 0.2f else 0.08f))
+            .background(morph?.skipBackground(hasNext) ?: colors.primary.copy(alpha = if (hasNext) 0.2f else 0.08f))
             .then(
               if (hasNext) {
                 Modifier.clickable(
@@ -1004,8 +1030,8 @@ fun MiniPlayerBar(
         Icon(
           imageVector = Icons.Filled.SkipNext,
           contentDescription = "Next",
-          tint = colors.primary.copy(alpha = if (hasNext) 1f else 0.4f),
-          modifier = Modifier.size(22.dp),
+          tint = buttonPrimary.copy(alpha = if (hasNext) 1f else 0.4f),
+          modifier = Modifier.size(lerp(22.dp, 32.dp, LocalPlayerMorph.current?.expansion ?: 0f)),
         )
       }
     }

@@ -37,6 +37,7 @@ android {
     applicationId = "com.aurelia.app"
     minSdk = 34
     targetSdk = 36
+    testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     versionCode = appVersionCode
     versionName = appVersionName
     vectorDrawables {

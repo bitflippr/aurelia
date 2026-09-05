@@ -7,84 +7,177 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.layout.layout
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.approachLayout
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.round
 
 private const val PLAYER_SHARED_TRANSITION_DURATION_MS = 500
+
+internal fun createPlayerSheetOffset(collapsedPosition: Float): Animatable<Float, AnimationVector1D> =
+  Animatable(collapsedPosition).apply {
+    // A critically damped spring can still pass its target with enough initial
+    // velocity. Stop at the physical endpoints instead of springing back to them.
+    updateBounds(lowerBound = 0f, upperBound = collapsedPosition)
+  }
+
+internal fun Modifier.lyricsFadingEdges(): Modifier =
+  graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithCache {
+      val edge = (36.dp.toPx() / size.height).coerceAtMost(0.5f)
+      val mask =
+        Brush.verticalGradient(
+          0f to Color.Transparent,
+          edge to Color.Black,
+          (1f - edge) to Color.Black,
+          1f to Color.Transparent,
+        )
+      onDrawWithContent {
+        drawContent()
+        drawRect(mask, blendMode = BlendMode.DstIn)
+      }
+    }
+
+@Composable
+internal fun rememberPlayerLyricsVisibility(
+  showLyrics: Boolean,
+  expansion: Float,
+  transitionsEnabled: Boolean = true,
+): Float {
+  val selected by animateFloatAsState(
+    targetValue = if (showLyrics) 1f else 0f,
+    animationSpec = tween(if (transitionsEnabled) 300 else 0),
+    label = "player-lyrics-selection",
+  )
+  // Let the cover become visibly smaller before it replaces the lyrics.
+  // This curve is driven by the gesture, so reversing a drag retraces it exactly.
+  val p = ((expansion - 0.65f) / 0.35f).coerceIn(0f, 1f)
+  return selected * p * p * (3f - 2f * p)
+}
+
+@Composable
+internal fun PlayerArtworkLyricsTransition(
+  lyricsAlpha: Float,
+  modifier: Modifier = Modifier,
+  sharedTransitionScope: SharedTransitionScope? = null,
+  content: @Composable (Boolean, Modifier) -> Unit,
+) {
+  val savedLyrics = rememberSaveableStateHolder()
+  Box(modifier) {
+    // Always keep the artwork endpoint available for the mini-player to match.
+    // Its alpha must be inside sharedElement, which draws above ancestor layers.
+    content(false, Modifier.graphicsLayer { alpha = 1f - lyricsAlpha })
+    if (lyricsAlpha > 0f) {
+      savedLyrics.SaveableStateProvider("lyrics") {
+        val layer =
+          if (sharedTransitionScope == null) {
+            Modifier
+          } else {
+            with(sharedTransitionScope) {
+              Modifier.skipToLookaheadPosition().renderInSharedTransitionScopeOverlay(renderInOverlay = { true })
+            }
+          }
+        content(true, layer.graphicsLayer { alpha = lyricsAlpha })
+      }
+    }
+  }
+}
 
 private val PLAYER_SHARED_BOUNDS_TRANSFORM =
   BoundsTransform { _, _ ->
     tween(
       durationMillis = PLAYER_SHARED_TRANSITION_DURATION_MS,
-      easing = FastOutSlowInEasing,
+      // The sheet's spring already eases progress. Keep shared bounds on that
+      // same progress so they cannot lag behind it and then catch up.
+      easing = LinearEasing,
     )
   }
+
+private fun playerBoundsTransform(artwork: Boolean): BoundsTransform =
+  BoundsTransform { initial, target ->
+    val expanding = if (artwork) target.width > initial.width else target.top < initial.top
+    val collapsed = if (expanding) initial else target
+    val expanded = if (expanding) target else initial
+    keyframes {
+      durationMillis = PLAYER_SHARED_TRANSITION_DURATION_MS
+      for (time in 0..PLAYER_SHARED_TRANSITION_DURATION_MS step 10) {
+        val fraction = time.toFloat() / PLAYER_SHARED_TRANSITION_DURATION_MS
+        val expansion = if (expanding) fraction else 1f - fraction
+        val bounds: Rect =
+          if (artwork) {
+            playerArtworkBounds(
+              collapsed,
+              expanded,
+              expansion,
+            )
+          } else {
+            playerTextBounds(collapsed, expanded, expansion)
+          }
+        bounds at time using LinearEasing
+      }
+    }
+  }
+
+private val PLAYER_ARTWORK_BOUNDS_TRANSFORM = playerBoundsTransform(artwork = true)
+private val PLAYER_TEXT_BOUNDS_TRANSFORM = playerBoundsTransform(artwork = false)
 
 internal data class PlayerTransitionSeek(
   val fraction: Float,
   val targetExpanded: Boolean,
 )
 
-internal fun Modifier.playerTransitionContentLayout(fullHeight: Dp): Modifier =
-  fillMaxWidth().layout { measurable, constraints ->
-    val fullHeightPx = fullHeight.roundToPx()
-    val placeable =
-      measurable.measure(
-        constraints.copy(
-          minHeight = fullHeightPx,
-          maxHeight = fullHeightPx,
-        ),
-      )
-
-    layout(
-      width = placeable.width.coerceIn(constraints.minWidth, constraints.maxWidth),
-      height = placeable.height.coerceIn(constraints.minHeight, constraints.maxHeight),
-    ) {
-      placeable.placeRelative(x = 0, y = 0)
-    }
-  }
-
-@Composable
-internal fun PlayerMiniTransitionContainer(
-  sheetHeight: Dp,
-  content: @Composable () -> Unit,
-) {
-  Layout(
-    content = content,
-    modifier = Modifier.fillMaxWidth(),
-  ) { measurables, constraints ->
-    val placeables =
-      measurables.map { measurable ->
-        measurable.measure(
-          constraints.copy(
-            minWidth = 0,
-            minHeight = 0,
-          ),
-        )
-      }
-    val width = placeables.maxOfOrNull { it.width }?.coerceIn(constraints.minWidth, constraints.maxWidth) ?: 0
-    val height = constraints.maxHeight
-    val sheetBottom = sheetHeight.roundToPx()
-
-    layout(width = width, height = height) {
-      placeables.forEach { placeable ->
-        placeable.placeRelative(
-          x = 0,
-          y = (sheetBottom - placeable.height).coerceAtLeast(0),
-        )
-      }
-    }
-  }
+/** A moving sheet outline in a stationary, screen-sized shared-element layout. */
+internal data class PlayerSheetShape(
+  val top: Float,
+  val height: Float,
+  val horizontalInset: Float,
+  val topRadius: Float,
+  val bottomRadius: Float,
+) : Shape {
+  override fun createOutline(
+    size: Size,
+    layoutDirection: LayoutDirection,
+    density: Density,
+  ): Outline =
+    Outline.Rounded(
+      RoundRect(
+        left = horizontalInset,
+        top = top,
+        right = size.width - horizontalInset,
+        bottom = (top + height).coerceAtMost(size.height),
+        topLeftCornerRadius = CornerRadius(topRadius),
+        topRightCornerRadius = CornerRadius(topRadius),
+        bottomLeftCornerRadius = CornerRadius(bottomRadius),
+        bottomRightCornerRadius = CornerRadius(bottomRadius),
+      ),
+    )
 }
 
 internal fun AnimatedContentTransitionScope<Boolean>.playerContentTransform(): ContentTransform =
@@ -94,7 +187,9 @@ internal fun AnimatedContentTransitionScope<Boolean>.playerContentTransform(): C
         keyframes {
           durationMillis = PLAYER_SHARED_TRANSITION_DURATION_MS
           0f at 0
-          1f at 100
+          // Shared elements draw in the overlay throughout the morph. Keep
+          // full-only content out of their path until there is room for it.
+          0f at 350
           1f at PLAYER_SHARED_TRANSITION_DURATION_MS
         },
     ) togetherWith
@@ -162,7 +257,15 @@ internal fun Modifier.playerSharedElement(
     this@playerSharedElement.sharedElement(
       sharedContentState = rememberSharedContentState(key = key),
       animatedVisibilityScope = animatedVisibilityScope,
-      boundsTransform = PLAYER_SHARED_BOUNDS_TRANSFORM,
+      boundsTransform =
+        if (key.endsWith(
+            "-artwork",
+          )
+        ) {
+          PLAYER_ARTWORK_BOUNDS_TRANSFORM
+        } else {
+          PLAYER_SHARED_BOUNDS_TRANSFORM
+        },
     )
   }
 }
@@ -181,7 +284,14 @@ internal fun Modifier.playerSharedBounds(
     this@playerSharedBounds.sharedBounds(
       sharedContentState = rememberSharedContentState(key = key),
       animatedVisibilityScope = animatedVisibilityScope,
-      boundsTransform = PLAYER_SHARED_BOUNDS_TRANSFORM,
+      boundsTransform =
+        if (key.endsWith("-title") ||
+          key.endsWith("-artist")
+        ) {
+          PLAYER_TEXT_BOUNDS_TRANSFORM
+        } else {
+          PLAYER_SHARED_BOUNDS_TRANSFORM
+        },
     )
   }
 }
@@ -190,3 +300,64 @@ internal fun playerSharedKey(
   contentKey: String?,
   element: String,
 ): String? = contentKey?.let { "player-$it-$element" }
+
+internal enum class PlayerSupportingRole {
+  Metadata,
+  SeekBar,
+  Header,
+  Footer,
+}
+
+/** Full-only content moves and fades with the gesture, independently of the screen fade. */
+internal fun Modifier.playerSupportingContent(
+  sharedTransitionScope: SharedTransitionScope?,
+  expansion: Float,
+  collapsedContentBottom: Float,
+  role: PlayerSupportingRole = PlayerSupportingRole.Metadata,
+): Modifier {
+  if (sharedTransitionScope == null) return this
+  val p = expansion.coerceIn(0f, 1f)
+  return with(sharedTransitionScope) {
+    this@playerSupportingContent
+      .approachLayout(
+        isMeasurementApproachInProgress = { false },
+        isPlacementApproachInProgress = { true },
+      ) { measurable, constraints ->
+        val placeable = measurable.measure(constraints)
+        layout(placeable.width, placeable.height) {
+          val coordinates = coordinates
+          if (coordinates == null) {
+            placeable.place(0, 0)
+          } else {
+            val target = lookaheadScopeCoordinates.localLookaheadPositionOf(coordinates)
+            val actual = lookaheadScopeCoordinates.localPositionOf(coordinates)
+            // The seekbar needs to disappear above the transport row, rather
+            // than travel through its buttons on the way to the compact player.
+            val collapsedY =
+              when (role) {
+                PlayerSupportingRole.SeekBar -> collapsedContentBottom - placeable.height * 2
+                PlayerSupportingRole.Footer -> maxOf(collapsedContentBottom, target.y) + placeable.height
+                else -> collapsedContentBottom
+              }
+            // Keep the header above the growing artwork; details below it follow
+            // the shared text. The footer retreats below the transport buttons.
+            val travel = if (role == PlayerSupportingRole.Header) p else p * p
+            val position = target.copy(y = target.y + (collapsedY - target.y) * (1f - travel))
+            placeable.place((position - actual).round())
+          }
+        }
+      }.renderInSharedTransitionScopeOverlay(renderInOverlay = { true })
+      .graphicsLayer {
+        // There is no room for these details in the compact layout. Reveal them
+        // as the text and transport controls separate; reverse the same curve on collapse.
+        val start =
+          when (role) {
+            PlayerSupportingRole.SeekBar -> 0.8f
+            PlayerSupportingRole.Metadata -> 0.55f
+            else -> 0.65f
+          }
+        val fraction = ((p - start) / (1f - start)).coerceIn(0f, 1f)
+        alpha = fraction * fraction * (3f - 2f * fraction)
+      }
+  }
+}
