@@ -8,6 +8,9 @@ sealed class Screen {
   data object Home : Screen()
 
   @Serializable
+  data object Library : Screen()
+
+  @Serializable
   data object Songs : Screen()
 
   @Serializable

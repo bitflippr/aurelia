@@ -18,6 +18,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -41,45 +42,44 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
-import androidx.compose.material.icons.automirrored.outlined.PlaylistPlay
-import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.outlined.Album
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.MusicNote
-import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -89,9 +89,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavDestination
 import androidx.navigation.NavDestination.Companion.hasRoute
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -104,35 +102,23 @@ import com.aurelia.app.player.PlayerController
 import com.aurelia.app.storage.SessionStore
 import com.aurelia.app.ui.components.AnimatedPlayPauseIcon
 import com.aurelia.app.ui.components.AudioVisualizer
+import com.aurelia.app.ui.components.BottomBarDimensions.MiniPlayerHeight
+import com.aurelia.app.ui.components.BottomBarDimensions.NavBarContentHeight
 import com.aurelia.app.ui.components.VisualizerFrameMetrics
 import com.aurelia.app.ui.navigation.Screen
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
-private val MiniPlayerHeight = 64.dp
-private val NavBarContentHeight = 90.dp
-
-data class NavItem(
+internal enum class MainTab(
   val screen: Screen,
   val label: String,
   val selectedIcon: ImageVector,
   val unselectedIcon: ImageVector,
-)
-
-private val navItems =
-  listOf(
-    NavItem(Screen.Home, "Home", Icons.Filled.Home, Icons.Outlined.Home),
-    NavItem(Screen.Songs, "Songs", Icons.Filled.MusicNote, Icons.Outlined.MusicNote),
-    NavItem(Screen.Albums, "Albums", Icons.Filled.Album, Icons.Outlined.Album),
-    NavItem(Screen.Artists, "Artists", Icons.Filled.Person, Icons.Outlined.Person),
-    NavItem(
-      Screen.Playlists,
-      "Playlists",
-      Icons.AutoMirrored.Filled.PlaylistPlay,
-      Icons.AutoMirrored.Outlined.PlaylistPlay,
-    ),
-    NavItem(Screen.Search, "Search", Icons.Filled.Search, Icons.Outlined.Search),
-  )
+) {
+  Home(Screen.Home, "Home", Icons.Filled.Home, Icons.Outlined.Home),
+  Search(Screen.Search, "Search", Icons.Filled.Search, Icons.Outlined.Search),
+  Library(Screen.Library, "Library", Icons.Filled.LibraryMusic, Icons.Outlined.LibraryMusic),
+}
 
 @Composable
 fun MainScreen(
@@ -142,6 +128,7 @@ fun MainScreen(
   onSessionSwitched: () -> Unit,
 ) {
   val navController = rememberNavController()
+  var activeTab by rememberSaveable { mutableStateOf(MainTab.Home) }
 
   // HomeViewModel hoisted here to survive tab switches
   val homeViewModel: HomeViewModel =
@@ -196,8 +183,7 @@ fun MainScreen(
     val miniPlayerTopMargin = 4.dp
     val expandFractionThreshold = 0.35f
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val navBarBottomPadding = bottomInset + 12.dp
-    val navBarHeightPx = with(density) { (NavBarContentHeight + navBarBottomPadding).toPx() }
+    val navBarHeightPx = with(density) { (NavBarContentHeight + bottomInset).toPx() }
     val miniPlayerHeightPx = with(density) { MiniPlayerHeight.toPx() }
     val miniPlayerTopMarginPx = with(density) { miniPlayerTopMargin.toPx() }
     val collapsedSheetY =
@@ -210,8 +196,7 @@ fun MainScreen(
       } else {
         1f
       }
-    val sheetTopCornerRadius = lerp(32.dp, 0.dp, dragProgress)
-    val sheetBottomCornerRadius = lerp(12.dp, 0.dp, dragProgress)
+    val sheetCornerRadius = lerp(20.dp, 0.dp, dragProgress)
     val sheetHorizontalPadding = lerp(12.dp, 0.dp, dragProgress)
     val sheetHeightPx = miniPlayerHeightPx + (screenHeightPx - miniPlayerHeightPx) * dragProgress
     val sheetShape =
@@ -220,8 +205,8 @@ fun MainScreen(
           top = playerDragOffset.value,
           height = sheetHeightPx,
           horizontalInset = sheetHorizontalPadding.toPx(),
-          topRadius = sheetTopCornerRadius.toPx(),
-          bottomRadius = sheetBottomCornerRadius.toPx(),
+          topRadius = sheetCornerRadius.toPx(),
+          bottomRadius = sheetCornerRadius.toPx(),
         )
       }
     val fullPlayerVisible = dragProgress >= 0.55f
@@ -340,9 +325,18 @@ fun MainScreen(
             playerController = playerController,
             playlistViewModel = playlistViewModel,
             onOpenPlayer = { openPlayerAnimated() },
+            onOpenSettings = { navController.navigate(Screen.Settings) },
             onNavigateToAlbum = { navController.navigate(it) },
             onNavigateToArtist = { navController.navigate(it) },
             hasPlayerBar = libraryState.nowPlaying != null,
+          )
+        }
+
+        composable<Screen.Library> {
+          LibraryOverviewScreen(
+            hasPlayerBar = libraryState.nowPlaying != null,
+            onNavigate = { navController.navigate(it) },
+            onOpenSettings = { navController.navigate(Screen.Settings) },
           )
         }
 
@@ -456,20 +450,47 @@ fun MainScreen(
       // 2. BOTTOM NAV BAR OVERLAY
       val navBackStackEntry by navController.currentBackStackEntryAsState()
       val currentDestination = navBackStackEntry?.destination
+      val selectedTab =
+        when {
+          currentDestination?.hasRoute<Screen.Home>() == true -> MainTab.Home
+          currentDestination?.hasRoute<Screen.Search>() == true -> MainTab.Search
+          currentDestination?.hasRoute<Screen.Library>() == true ||
+            currentDestination?.hasRoute<Screen.Songs>() == true ||
+            currentDestination?.hasRoute<Screen.Albums>() == true ||
+            currentDestination?.hasRoute<Screen.Artists>() == true ||
+            currentDestination?.hasRoute<Screen.Playlists>() == true -> MainTab.Library
+          // Details and settings retain the tab from which they were opened.
+          else -> activeTab
+        }
+      LaunchedEffect(selectedTab) { activeTab = selectedTab }
 
-      // Show bottom bar on all screens
+      // With a player, start the fade at its top edge; otherwise finish it at navigation.
+      val dockColor = MaterialTheme.colorScheme.background
+      val hasPlayer = libraryState.nowPlaying != null
+      val dockFadeHeight = 24.dp
       Column(
         modifier =
           Modifier
             .align(Alignment.BottomCenter)
             .fillMaxWidth(),
       ) {
+        Spacer(
+          Modifier
+            .fillMaxWidth()
+            .height(if (hasPlayer) MiniPlayerHeight + miniPlayerTopMargin else dockFadeHeight)
+            .background(
+              Brush.verticalGradient(
+                colors = listOf(dockColor.copy(alpha = 0f), dockColor),
+                endY = with(density) { dockFadeHeight.toPx() },
+              ),
+            ).then(
+              // Covered page content behind the player must not receive taps.
+              if (hasPlayer) Modifier.pointerInput(Unit) { detectTapGestures {} } else Modifier,
+            ),
+        )
         BottomNavBar(
-          items = navItems,
-          currentDestination = currentDestination,
-          onNavigate = { navigateToTab(it) },
-          onSettingsClick = { navigateToTab(Screen.Settings) },
-          hasPlayerBar = libraryState.nowPlaying != null,
+          selectedTab = selectedTab,
+          onNavigate = { navigateToTab(it.screen) },
         )
       }
     }
@@ -624,70 +645,32 @@ fun MainScreen(
   }
 }
 
-/**
- * Mini player bar styled after PixelPlayer.
- * Features: 64dp height, circular album art, primaryContainer background,
- * smooth rounded corners, and proper control button styling.
- */
+/** Navigation blends into the app; only the player floats above it. */
 @Composable
-fun BottomNavBar(
-  items: List<NavItem>,
-  currentDestination: NavDestination?,
-  onNavigate: (Screen) -> Unit,
-  onSettingsClick: () -> Unit,
-  hasPlayerBar: Boolean,
+internal fun BottomNavBar(
+  selectedTab: MainTab,
+  onNavigate: (MainTab) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  val colors = MaterialTheme.colorScheme
   val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-  val bottomPadding = if (hasPlayerBar) 8.dp else 12.dp
-  val topCornerRadius = if (hasPlayerBar) 12.dp else 32.dp
-
-  Surface(
-    modifier =
-      modifier
-        .fillMaxWidth()
-        .padding(horizontal = 12.dp)
-        .padding(bottom = bottomInset + bottomPadding),
-    color = colors.surface,
-    tonalElevation = 4.dp,
-    shadowElevation = 12.dp,
-    shape =
-      RoundedCornerShape(
-        topStart = topCornerRadius,
-        topEnd = topCornerRadius,
-        bottomStart = 32.dp,
-        bottomEnd = 32.dp,
-      ),
+  Column(
+    modifier
+      .fillMaxWidth()
+      .background(MaterialTheme.colorScheme.background)
+      .padding(bottom = bottomInset),
   ) {
-    Column(
-      modifier =
-        Modifier
-          .fillMaxWidth()
-          .padding(horizontal = 18.dp, vertical = 12.dp),
+    Row(
+      Modifier.fillMaxWidth().height(NavBarContentHeight).padding(horizontal = 20.dp),
+      horizontalArrangement = Arrangement.SpaceEvenly,
+      verticalAlignment = Alignment.CenterVertically,
     ) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-      ) {
-        items.forEach { item ->
-          // Use hierarchy to check if we are in this tab
-          val isSelected = currentDestination?.hierarchy?.any { it.hasRoute(item.screen::class) } == true
-          BottomNavItem(
-            label = item.label,
-            icon = if (isSelected) item.selectedIcon else item.unselectedIcon,
-            selected = isSelected,
-            onClick = { onNavigate(item.screen) },
-          )
-        }
-
-        val isSettingsSelected = currentDestination?.hierarchy?.any { it.hasRoute<Screen.Settings>() } == true
+      MainTab.entries.forEach { item ->
+        val selected = selectedTab == item
         BottomNavItem(
-          label = "Settings",
-          icon = if (isSettingsSelected) Icons.Filled.Settings else Icons.Outlined.Settings,
-          selected = isSettingsSelected,
-          onClick = onSettingsClick,
+          label = item.label,
+          icon = if (selected) item.selectedIcon else item.unselectedIcon,
+          selected = selected,
+          onClick = { onNavigate(item) },
         )
       }
     }
@@ -715,6 +698,7 @@ private fun RowScope.BottomNavItem(
     modifier =
       Modifier
         .weight(1f)
+        .semantics { this.selected = selected }
         .clip(RoundedCornerShape(20.dp))
         .clickable(
           interactionSource = remember { MutableInteractionSource() },
@@ -728,14 +712,14 @@ private fun RowScope.BottomNavItem(
     Box(
       modifier =
         Modifier
-          .size(36.dp)
-          .clip(CircleShape)
+          .size(width = 64.dp, height = 36.dp)
+          .clip(RoundedCornerShape(20.dp))
           .background(colors.primary.copy(alpha = if (selected) 0.2f else 0f)),
       contentAlignment = Alignment.Center,
     ) {
       Icon(
         imageVector = icon,
-        contentDescription = label,
+        contentDescription = null,
         tint = iconTint,
         modifier = Modifier.size(20.dp),
       )

@@ -18,7 +18,7 @@ data class HomeMix(
 data class HomeState(
   val isLoading: Boolean = false,
   val error: String? = null,
-  // Dense grid of recent + frequent plays
+  // Recent + frequent plays for rediscovery
   val quickPicks: List<Song> = emptyList(),
   // Recently played songs (sorted by datePlayed)
   val recentlyPlayed: List<Song> = emptyList(),

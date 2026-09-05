@@ -8,14 +8,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * Shared dimensions for the floating bottom bars (mini player + nav bar).
+ * Shared dimensions for the floating mini player and app navigation bar.
  * Use these to calculate consistent bottom padding across all screens.
  */
 object BottomBarDimensions {
   val MiniPlayerHeight = 64.dp
-  val NavBarContentHeight = 90.dp
-  val NavBarVerticalPadding = 16.dp // top + bottom padding around nav bar
-  val MiniPlayerTopPadding = 8.dp
+  val NavBarContentHeight = 72.dp
   val NavBarSpacing = 4.dp // spacing between player and nav when both visible
 
   /**
@@ -26,10 +24,10 @@ object BottomBarDimensions {
   fun calculateBottomPadding(hasPlayerBar: Boolean): Dp {
     val systemNavBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    val navBarTotal = NavBarContentHeight + NavBarVerticalPadding + 12.dp // extra buffer
+    val navBarTotal = NavBarContentHeight + 24.dp // leave content clear of the dock fade
     val playerBarTotal =
       if (hasPlayerBar) {
-        MiniPlayerHeight + MiniPlayerTopPadding + NavBarSpacing
+        MiniPlayerHeight + NavBarSpacing
       } else {
         0.dp
       }

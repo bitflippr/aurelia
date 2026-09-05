@@ -67,6 +67,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aurelia.app.storage.SessionProfile
 import com.aurelia.app.storage.SessionStore
+import com.aurelia.app.ui.components.BottomBarDimensions.MiniPlayerHeight
+import com.aurelia.app.ui.components.BottomBarDimensions.NavBarContentHeight
 import com.aurelia.app.ui.components.EqualizerSection
 import com.aurelia.app.ui.components.LibraryScreenHeader
 import com.aurelia.app.ui.components.VisualizerSection
@@ -76,10 +78,6 @@ import kotlinx.coroutines.withContext
 import uniffi.aurelia_core.AuthRequest
 import uniffi.aurelia_core.BackendProvider
 import uniffi.aurelia_core.authenticate
-
-// Heights matching MainScreen
-private val MiniPlayerHeight = 64.dp
-private val NavBarContentHeight = 90.dp
 
 private enum class SettingsPage(
   val title: String,

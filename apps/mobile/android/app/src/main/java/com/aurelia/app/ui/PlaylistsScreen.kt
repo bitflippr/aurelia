@@ -71,15 +71,14 @@ import com.aurelia.app.ai.SmartPlaylistPreview
 import com.aurelia.app.ai.SmartPlaylistRequest
 import com.aurelia.app.ui.components.AlbumArt
 import com.aurelia.app.ui.components.AlbumArtStyle
+import com.aurelia.app.ui.components.BottomBarDimensions.MiniPlayerHeight
+import com.aurelia.app.ui.components.BottomBarDimensions.NavBarContentHeight
 import com.aurelia.app.ui.components.LibraryMessageState
 import com.aurelia.app.ui.components.LibraryScreenHeader
 import com.aurelia.app.ui.components.MediaListItem
 import com.aurelia.app.ui.navigation.Screen
 import uniffi.aurelia_core.Playlist
 import uniffi.aurelia_core.Song
-
-private val MiniPlayerHeight = 64.dp
-private val NavBarContentHeight = 90.dp
 
 @Composable
 fun PlaylistsScreen(
