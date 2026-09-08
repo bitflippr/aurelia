@@ -625,6 +625,7 @@ dependencies = [
  "uniffi",
  "urlencoding",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -643,6 +644,7 @@ dependencies = [
  "unicode-segmentation",
  "url",
  "uuid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

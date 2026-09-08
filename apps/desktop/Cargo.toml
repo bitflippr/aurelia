@@ -21,3 +21,4 @@ tokio = { version = "1.43", features = ["sync"] }
 url = "2.5"
 uuid = { version = "1.19", features = ["v4"] }
 unicode-segmentation = "1.12"
+windows-sys = "0.61.2"
