@@ -80,6 +80,9 @@ class SettingsViewModel(
       try {
         // Smart sync: paginated + incremental (songs, albums, artists)
         syncLibrarySmart(serverUrl, token, userId, appDataDir ?: "")
+        sessionStore.snapshot()?.takeIf { it.appDataDir == appDataDir }?.let {
+          sessionStore.library.reloadFromCache(it)
+        }
         loadSyncState() // Refresh sync state after sync
         mutableState.update { it.copy(isSyncing = false, syncSuccess = true) }
       } catch (e: Exception) {
@@ -105,6 +108,8 @@ class SettingsViewModel(
     viewModelScope.launch(Dispatchers.IO) {
       try {
         clearCache(appDataDir)
+        sessionStore.reads.clear()
+        sessionStore.library.clear()
         mutableState.update { it.copy(isClearing = false, clearSuccess = true, lastSyncTime = null) }
       } catch (e: Exception) {
         mutableState.update {

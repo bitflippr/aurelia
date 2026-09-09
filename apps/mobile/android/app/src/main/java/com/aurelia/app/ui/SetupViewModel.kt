@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import uniffi.aurelia_core.getSyncProgress
-import uniffi.aurelia_core.syncLibrarySmart
 
 data class SetupState(
   val isSyncing: Boolean = false,
@@ -33,16 +32,13 @@ class SetupViewModel(
   private val _state = MutableStateFlow(SetupState())
   val state: StateFlow<SetupState> = _state.asStateFlow()
 
-  fun syncLibrary() {
+  fun syncLibrary(force: Boolean = false) {
     if (_state.value.isSyncing) return
     val session = validateSession(sessionStore, requireAppDataDir = true)
     if (session == null) {
       _state.value = SetupState(error = "Missing session data")
       return
     }
-    val serverUrl = session.serverUrl
-    val userId = session.userId
-    val token = session.token
     val appDataDir = session.appDataDir.orEmpty()
 
     _state.value = SetupState(isSyncing = true)
@@ -72,7 +68,7 @@ class SetupViewModel(
 
       try {
         try {
-          syncLibrarySmart(serverUrl, token, userId, appDataDir)
+          sessionStore.reads.initialSync(session, force)
         } finally {
           pollingJob.cancelAndJoin()
         }

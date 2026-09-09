@@ -55,7 +55,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AureliaApp() {
   val context = LocalContext.current
-  val sessionStore = remember { SessionStore(context) }
+  val sessionStore = remember { SessionStore.forApplication(context) }
 
   if (sessionStore.getAppDataDir().isNullOrBlank()) {
     sessionStore.setAppDataDir(context.filesDir.absolutePath)

@@ -1,16 +1,13 @@
 package com.aurelia.app.ui
 
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aurelia.app.auth.AuthInterceptor
 import com.aurelia.app.player.PlayerController
 import com.aurelia.app.storage.SessionStore
+import com.aurelia.app.utils.SessionData
 import com.aurelia.app.utils.validateSession
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
@@ -18,7 +15,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import uniffi.aurelia_core.Song
 import uniffi.aurelia_core.deriveMobileHomeData
-import uniffi.aurelia_core.getInstantMix
 
 class HomeViewModel(
   private val sessionStore: SessionStore,
@@ -41,6 +37,7 @@ class HomeViewModel(
         if (library.profilePath != libraryProfile) {
           libraryProfile = library.profilePath
           mixesJob?.cancel()
+          mixesJob = null
           allSongs = emptyList()
           mutableState.value = HomeState(isLoading = library.isLoading)
         }
@@ -51,9 +48,10 @@ class HomeViewModel(
           }
           val session = validateSession(sessionStore)
           if (session != null &&
-            session.appDataDir == library.profilePath
+            session.appDataDir == library.profilePath &&
+            (songs.isNotEmpty() || !library.isLoading)
           ) {
-            loadMixes(session.serverUrl, session.token, songs)
+            loadMixes(session, songs)
           }
         }
         library.error?.let { AuthInterceptor.handlePotentialAuthError(it) }
@@ -157,79 +155,18 @@ class HomeViewModel(
     }
   }
 
-  /**
-   * Build instant mixes from the user's top artists and top song.
-   * Runs lazily after fresh data arrives; failures simply omit that mix.
-   */
   private fun loadMixes(
-    serverUrl: String,
-    token: String,
+    session: SessionData,
     songs: List<Song>,
   ) {
-    if (mixesJob?.isActive == true) return
-    if (mutableState.value.mixes.isNotEmpty()) return
-    val profilePath = sessionStore.getAppDataDir()
+    if (mixesJob != null) return
     mixesJob =
-      viewModelScope.launch(Dispatchers.IO) {
-        val played = songs.filter { (it.playCount ?: 0) > 0 }
-        if (played.isEmpty()) return@launch
-
-        // Top artists by cumulative play count
-        val topArtists =
-          played
-            .flatMap { song ->
-              val plays = song.playCount ?: 0
-              song.artistIds.orEmpty().zip(song.artists.orEmpty()).map { (id, name) ->
-                Triple(id, name, plays)
-              }
-            }.groupBy { it.first }
-            .map { (_, entries) -> entries.first().first to entries.sumOf { it.third } }
-            .sortedByDescending { it.second }
-            .map { it.first }
-
-        val topSongId = played.maxByOrNull { it.playCount ?: 0 }?.id
-
-        val seedIds = (topArtists + listOfNotNull(topSongId)).distinct().take(UiConstants.MIX_SEEDS_LIMIT)
-
-        // Build all mixes in parallel, then swap them in atomically so the row doesn't jump
-        val mixes =
-          seedIds
-            .map { seedId ->
-              async {
-                try {
-                  val mixSongs = getInstantMix(serverUrl, token, seedId).take(UiConstants.MIX_SIZE_LIMIT)
-                  if (mixSongs.isEmpty()) return@async null
-                  HomeMix(
-                    seedId = seedId,
-                    seedTitle = mixSeedTitle(seedId, songs, mixSongs),
-                    artworkUrl = mixSongs.firstOrNull { !it.albumArtUrl.isNullOrBlank() }?.albumArtUrl,
-                    songs = mixSongs,
-                  )
-                } catch (e: Exception) {
-                  if (e is kotlinx.coroutines.CancellationException) throw e
-                  Log.w("HomeViewModel", "Failed to load instant mix for $seedId", e)
-                  null
-                }
-              }
-            }.awaitAll()
-            .filterNotNull()
-
-        if (mixes.isNotEmpty() && profilePath == sessionStore.getAppDataDir()) {
+      viewModelScope.launch {
+        val mixes = HomeMixStore.loadOnce(session, songs)
+        if (session.appDataDir == libraryProfile && session.appDataDir == sessionStore.getAppDataDir()) {
           mutableState.update { it.copy(mixes = mixes) }
         }
       }
-  }
-
-  private fun mixSeedTitle(
-    seedId: String,
-    songs: List<Song>,
-    mixSongs: List<Song>,
-  ): String {
-    val seedSong = songs.firstOrNull { it.id == seedId }
-    if (seedSong != null) return seedSong.name
-    val artistSong =
-      (mixSongs + songs).firstOrNull { song -> song.artistIds.orEmpty().contains(seedId) }
-    return artistSong?.artists.orEmpty().firstOrNull() ?: "Your mix"
   }
 
   /**

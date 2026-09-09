@@ -55,7 +55,7 @@ class PlaybackService : MediaLibraryService() {
 
     val exoPlayer = ExoPlayer.Builder(this).build()
     val player = TranscodingSeekPlayer(exoPlayer)
-    val sessionStore = SessionStore(this)
+    val sessionStore = SessionStore.forApplication(this)
     playbackReporting = PlaybackReporting(player, sessionStore)
     val catalog =
       AutoMediaCatalog(

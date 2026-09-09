@@ -61,11 +61,12 @@ import com.aurelia.app.ui.navigation.Screen
 import com.aurelia.app.ui.theme.rememberGoogleSansFlexWideFont
 import com.aurelia.app.utils.formatDuration
 import com.aurelia.app.utils.jellyfinPrimaryImageUrl
+import com.aurelia.app.utils.validateSession
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uniffi.aurelia_core.Artist
 import uniffi.aurelia_core.Song
-import uniffi.aurelia_core.fetchArtist
 import uniffi.aurelia_core.getCachedArtist
 
 private data class ArtistAlbumSummary(
@@ -138,11 +139,9 @@ fun ArtistDetailScreen(
 
   val gradient = DetailHeroGradient()
 
-  LaunchedEffect(artistId) {
+  LaunchedEffect(artistId, sessionStore.getAppDataDir()) {
     val appDataDir = sessionStore.getAppDataDir()
-    val serverUrl = sessionStore.getServerUrl()
-    val token = sessionStore.getToken()
-    val userId = sessionStore.getUserId()
+    val session = validateSession(sessionStore, requireAppDataDir = true)
 
     if (!appDataDir.isNullOrBlank()) {
       artistDetails =
@@ -151,14 +150,14 @@ fun ArtistDetailScreen(
         }
     }
 
-    if (!serverUrl.isNullOrBlank() &&
-      !token.isNullOrBlank() &&
-      !userId.isNullOrBlank() &&
-      !appDataDir.isNullOrBlank()
-    ) {
+    if (session != null) {
       val fetched =
-        withContext(Dispatchers.IO) {
-          runCatching { fetchArtist(serverUrl, token, userId, artistId, appDataDir) }.getOrNull()
+        try {
+          sessionStore.reads.artist(session, artistId)
+        } catch (e: CancellationException) {
+          throw e
+        } catch (_: Exception) {
+          null
         }
       if (fetched != null) {
         artistDetails = fetched

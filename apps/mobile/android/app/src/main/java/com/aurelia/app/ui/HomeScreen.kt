@@ -1,6 +1,5 @@
 package com.aurelia.app.ui
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,6 +27,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -61,6 +61,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -76,7 +77,6 @@ import com.aurelia.app.ui.navigation.Screen
 import com.aurelia.app.ui.theme.rememberPressScale
 import com.aurelia.app.utils.optimizedArtworkUrl
 import uniffi.aurelia_core.Song
-import java.util.Calendar
 
 private val ArtShape = RoundedCornerShape(20.dp)
 
@@ -326,35 +326,25 @@ internal fun HomeContent(
 }
 
 @Composable
-private fun HomeHeader(
+internal fun HomeHeader(
   username: String,
   onOpenSettings: () -> Unit,
+  title: String = HomeHeaderText.current,
 ) {
-  val greeting = remember { timeOfDayGreeting() }
   Row(
     Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
     verticalAlignment = Alignment.CenterVertically,
     horizontalArrangement = Arrangement.spacedBy(12.dp),
   ) {
-    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-      Text(
-        if (username.isBlank()) greeting else "$greeting, $username",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-      )
-      Text(
-        "What sounds good?",
-        style =
-          MaterialTheme.typography.headlineMedium.copy(
-            fontFamily = MaterialTheme.typography.bodyLarge.fontFamily,
-          ),
-        fontWeight = FontWeight.SemiBold,
-        color = MaterialTheme.colorScheme.onBackground,
-        modifier = Modifier.semantics { heading() },
-      )
-    }
+    Text(
+      title,
+      style = MaterialTheme.typography.headlineLarge,
+      autoSize = TextAutoSize.StepBased(minFontSize = 16.sp, maxFontSize = 32.sp, stepSize = 0.5.sp),
+      maxLines = 1,
+      overflow = TextOverflow.Ellipsis,
+      color = MaterialTheme.colorScheme.onBackground,
+      modifier = Modifier.weight(1f).semantics { heading() },
+    )
     Surface(
       onClick = onOpenSettings,
       modifier = Modifier.size(48.dp).semantics { contentDescription = "Profile and settings" },
@@ -367,13 +357,6 @@ private fun HomeHeader(
     }
   }
 }
-
-private fun timeOfDayGreeting(): String =
-  when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
-    in 5..11 -> "Good morning"
-    in 12..17 -> "Good afternoon"
-    else -> "Good evening"
-  }
 
 @Composable
 private fun HomeSectionHeader(
@@ -594,34 +577,6 @@ private fun ArtworkCard(
  * Horizontally wrapping genre chips. Each chip shuffles songs of that genre.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
-@Composable
-private fun GenreChips(
-  genres: List<String>,
-  onPlayGenre: (String) -> Unit,
-) {
-  androidx.compose.foundation.layout.FlowRow(
-    modifier = Modifier.fillMaxWidth(),
-    horizontalArrangement = Arrangement.spacedBy(8.dp),
-    verticalArrangement = Arrangement.spacedBy(8.dp),
-  ) {
-    genres.forEach { genre ->
-      Surface(
-        onClick = { onPlayGenre(genre) },
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-      ) {
-        Text(
-          genre,
-          modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-          style = MaterialTheme.typography.labelLarge,
-          color = MaterialTheme.colorScheme.onSurface,
-        )
-      }
-    }
-  }
-}
-
 @Composable
 private fun Artwork(
   imageUrl: String?,

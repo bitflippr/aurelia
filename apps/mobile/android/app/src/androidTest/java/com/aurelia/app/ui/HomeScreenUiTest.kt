@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -21,6 +22,13 @@ class HomeScreenUiTest {
 
   private val album = AlbumItem("album", "An album", "An artist", null, 4)
   private val songs = (1..4).map { song("$it") }
+
+  @Test
+  fun homeHasOneHeaderWithoutTheGreeting() {
+    show(HomeState(recentlyAddedAlbums = listOf(album)))
+    compose.onNodeWithText(HomeHeaderText.current).assertIsDisplayed()
+    compose.onAllNodesWithText("Listener", substring = true).fetchSemanticsNodes().also { assertTrue(it.isEmpty()) }
+  }
 
   @Test
   fun emptyLibraryOffersRefreshWithoutDeadPlaybackControls() {

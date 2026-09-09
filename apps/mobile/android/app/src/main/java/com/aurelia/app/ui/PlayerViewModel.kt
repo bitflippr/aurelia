@@ -11,6 +11,8 @@ import com.aurelia.app.data.model.SyncedWord
 import com.aurelia.app.player.PlayerController
 import com.aurelia.app.player.PlayerSnapshot
 import com.aurelia.app.storage.SessionStore
+import com.aurelia.app.utils.validateSession
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,7 +21,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import uniffi.aurelia_lyrics.ParsedLyrics
 import uniffi.aurelia_lyrics.ParsedLyricsLine
-import uniffi.aurelia_core.getParsedLyrics as uniffiGetParsedLyrics
 import uniffi.aurelia_core.toggleFavorite as uniffiToggleFavorite
 
 class PlayerViewModel(
@@ -62,25 +63,26 @@ class PlayerViewModel(
     songId: String?,
     artist: String,
     title: String,
+    force: Boolean = false,
   ) {
+    val session = validateSession(sessionStore) ?: return
+    if (songId.isNullOrBlank()) return
     viewModelScope.launch(Dispatchers.IO) {
       lastFetchedSongId = songId
       mutableState.update { it.copy(lyrics = null) }
       try {
-        val serverUrl = sessionStore.getServerUrl() ?: ""
-        val token = sessionStore.getToken() ?: ""
-        val itemId = songId ?: ""
-
-        val lyrics = uniffiGetParsedLyrics(serverUrl, token, itemId, artist, title).toUiLyrics()
+        val lyrics = sessionStore.reads.lyrics(session, songId, artist, title, force).toUiLyrics()
 
         // Ensure we are still playing the same song
-        if (songId == mutableState.value.currentSongId) {
+        if (songId == mutableState.value.currentSongId && session.appDataDir == sessionStore.getAppDataDir()) {
           if (lyrics.isValid()) {
             mutableState.update { it.copy(lyrics = lyrics) }
           } else {
             mutableState.update { it.copy(showLyrics = false) }
           }
         }
+      } catch (e: CancellationException) {
+        throw e
       } catch (e: Exception) {
         if (songId == mutableState.value.currentSongId) {
           mutableState.update { it.copy(showLyrics = false) }
@@ -218,7 +220,7 @@ class PlayerViewModel(
   fun toggleLyrics() {
     val currentState = mutableState.value
     if (currentState.lyrics == null && currentState.title.isNotBlank()) {
-      fetchLyrics(currentState.currentSongId, currentState.artist, currentState.title)
+      fetchLyrics(currentState.currentSongId, currentState.artist, currentState.title, force = true)
     }
     mutableState.update { it.copy(showLyrics = !it.showLyrics) }
   }

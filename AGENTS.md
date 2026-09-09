@@ -4,6 +4,11 @@
 
 Aurelia is a native mobile music client for Jellyfin. It consists of native Android and iOS applications backed by shared Rust domain logic and generated UniFFI bindings.
 
+## GitHub identity
+
+- Use the owner's main GitHub account, `skulldogged`, for this repository, with personal `gh` and normal `git`.
+- This is a standing project preference. Do not request account approval again for later tasks or releases.
+
 ## Repository map
 
 - `apps/mobile/android/` — Kotlin, Jetpack Compose, and Media3 Android app.

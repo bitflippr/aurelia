@@ -38,6 +38,7 @@ class SessionStore(
   context: Context,
 ) {
   val library = LibraryStore()
+  val reads = SessionReads()
   private val prefs = context.getSharedPreferences("aurelia_session", Context.MODE_PRIVATE)
   private val externalFilesDir = context.getExternalFilesDir(null)?.absolutePath
   private val json = Json { ignoreUnknownKeys = true }
@@ -58,6 +59,7 @@ class SessionStore(
     upsertProfile(credentials)
     setActiveProfileId(profileId)
     library.clear()
+    reads.clear()
   }
 
   @Synchronized
@@ -90,6 +92,7 @@ class SessionStore(
   @Synchronized
   fun clear() {
     library.clear()
+    reads.clear()
     val appDataDir = getAppDataDir()
     if (!appDataDir.isNullOrEmpty()) {
       try {
@@ -167,6 +170,7 @@ class SessionStore(
       if (loadCredentials(path) == null) return false
       setActiveProfileId(profileId)
       library.clear()
+      reads.clear()
       true
     } catch (e: Exception) {
       Log.e(TAG, "Failed to switch profile", e)
@@ -461,6 +465,15 @@ class SessionStore(
   }
 
   companion object {
+    @Volatile
+    private var applicationInstance: SessionStore? = null
+
+    /** Retain loaded data for the process, holding only the application context. */
+    fun forApplication(context: Context): SessionStore =
+      applicationInstance ?: synchronized(this) {
+        applicationInstance ?: SessionStore(context.applicationContext).also { applicationInstance = it }
+      }
+
     private const val TAG = "SessionStore"
     private const val KEY_ACTIVE_PROFILE_ID = "active_profile_id"
     private const val KEY_APP_DATA_DIR = "appDataDir"

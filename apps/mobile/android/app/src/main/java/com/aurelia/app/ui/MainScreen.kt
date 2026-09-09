@@ -155,7 +155,7 @@ fun MainScreen(
   val libraryState by libraryViewModel.state.collectAsStateWithLifecycle()
   val scope = rememberCoroutineScope()
 
-  // Prime screen data once, viewmodels dedupe and freshness-gate repeated calls.
+  // Session stores reuse loaded data and in-flight requests when this UI is recreated.
   LaunchedEffect(homeViewModel, libraryViewModel, playlistViewModel) {
     homeViewModel.ensureLoaded()
     libraryViewModel.ensureLoaded()

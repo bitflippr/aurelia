@@ -243,7 +243,7 @@ fun SetupScreen(
           verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
           Button(
-            onClick = viewModel::syncLibrary,
+            onClick = { viewModel.syncLibrary(force = true) },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
             colors =

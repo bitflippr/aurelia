@@ -1,6 +1,5 @@
 package com.aurelia.app.storage
 
-import android.os.SystemClock
 import com.aurelia.app.utils.SessionData
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -24,7 +23,6 @@ data class LibrarySnapshot(
 /** Owns the active profile's song snapshot and refresh, shared by native screens. */
 class LibraryStore(
   private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-  private val clock: () -> Long = SystemClock::elapsedRealtime,
   private val loadCache: suspend (String) -> List<Song> = { loadCachedSongs(it) },
   private val fetch: suspend (SessionData) -> List<Song> = {
     fetchSongs(it.serverUrl, it.token, it.userId, it.appDataDir.orEmpty())
@@ -34,7 +32,7 @@ class LibraryStore(
   val snapshots = mutableSnapshot.asStateFlow()
   private var session: SessionData? = null
   private var job: Job? = null
-  private var loadedAt: Long? = null
+  private var loadAttempted = false
   private var generation = 0L
 
   @Synchronized
@@ -46,11 +44,12 @@ class LibraryStore(
       generation++
       job?.cancel()
       session = request
-      loadedAt = null
+      loadAttempted = false
       mutableSnapshot.value = LibrarySnapshot(profilePath = request.appDataDir)
     }
     if (job?.isActive == true) return
-    if (!force && loadedAt?.let { clock() - it < 60_000 } == true) return
+    if (!force && loadAttempted) return
+    loadAttempted = true
     mutableSnapshot.value = mutableSnapshot.value.copy(isLoading = true, error = null)
     val requestGeneration = generation
     job =
@@ -72,7 +71,6 @@ class LibraryStore(
           val songs = fetch(request)
           synchronized(this@LibraryStore) {
             if (generation == requestGeneration) {
-              loadedAt = clock()
               mutableSnapshot.value = LibrarySnapshot(request.appDataDir, songs)
             }
           }
@@ -90,8 +88,26 @@ class LibraryStore(
     job?.cancel()
     job = null
     session = null
-    loadedAt = null
+    loadAttempted = false
     mutableSnapshot.value = LibrarySnapshot()
+  }
+
+  /** A completed manual or background sync already fetched the data; publish its disk snapshot. */
+  suspend fun reloadFromCache(request: SessionData) {
+    val requestGeneration =
+      synchronized(this) {
+        if (request != session) return
+        generation
+      }
+    val songs = loadCache(request.appDataDir.orEmpty())
+    synchronized(this) {
+      if (request != session || requestGeneration != generation) return
+      generation++
+      job?.cancel()
+      job = null
+      loadAttempted = true
+      mutableSnapshot.value = LibrarySnapshot(request.appDataDir, songs)
+    }
   }
 
   @Synchronized

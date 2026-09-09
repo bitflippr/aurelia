@@ -4,6 +4,7 @@ import com.aurelia.app.utils.SessionData
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
@@ -24,7 +25,7 @@ class LibraryStoreTest {
       var calls = 0
       val finish = CompletableDeferred<Unit>()
       val store =
-        LibraryStore(this, { 100L }, { emptyList() }, {
+        LibraryStore(this, { emptyList() }, {
           calls++
           finish.await()
           emptyList()
@@ -38,17 +39,21 @@ class LibraryStoreTest {
       runCurrent()
       assertFalse(store.snapshots.value.isLoading)
       assertEquals(emptyList<Any>(), store.snapshots.value.songs)
+      advanceTimeBy(120_000)
       store.ensureLoaded(session)
       runCurrent()
       assertEquals(1, calls)
+      store.ensureLoaded(session, force = true)
+      runCurrent()
+      assertEquals(2, calls)
     }
 
   @Test
-  fun failedRefreshCanRetry() =
+  fun failedRefreshRequiresAnExplicitRetry() =
     runTest {
       var calls = 0
       val store =
-        LibraryStore(this, { 100L }, { emptyList() }, {
+        LibraryStore(this, { emptyList() }, {
           if (++calls == 1) error("offline")
           emptyList()
         })
@@ -58,8 +63,35 @@ class LibraryStoreTest {
       assertNotNull(store.snapshots.value.error)
       store.ensureLoaded(session)
       runCurrent()
+      assertEquals(1, calls)
+      store.ensureLoaded(session, force = true)
+      runCurrent()
       assertEquals(2, calls)
       assertNull(store.snapshots.value.error)
+    }
+
+  @Test
+  fun completedSyncPublishesTheDiskSnapshotWithoutAnotherFetch() =
+    runTest {
+      var fetchCalls = 0
+      var cacheCalls = 0
+      val store =
+        LibraryStore(this, {
+          cacheCalls++
+          emptyList()
+        }, {
+          fetchCalls++
+          emptyList()
+        })
+      store.ensureLoaded(session)
+      runCurrent()
+      store.reloadFromCache(session)
+      store.ensureLoaded(session)
+      runCurrent()
+      assertEquals(1, fetchCalls)
+      assertEquals(2, cacheCalls)
+      assertFalse(store.snapshots.value.isLoading)
+      assertEquals(session.appDataDir, store.snapshots.value.profilePath)
     }
 
   @Test
@@ -68,7 +100,7 @@ class LibraryStoreTest {
       val finish = CompletableDeferred<Unit>()
       var calls = 0
       val store =
-        LibraryStore(this, { 100L }, { emptyList() }, {
+        LibraryStore(this, { emptyList() }, {
           if (++calls == 1) {
             withContext(NonCancellable) {
               finish.await()

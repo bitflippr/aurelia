@@ -28,7 +28,7 @@ class SyncWorker(
       Log.d(TAG, "Starting background library sync...")
 
       try {
-        val sessionStore = SessionStore(applicationContext)
+        val sessionStore = SessionStore.forApplication(applicationContext)
 
         val serverUrl = sessionStore.getServerUrl()
         val userId = sessionStore.getUserId()
@@ -42,6 +42,9 @@ class SyncWorker(
 
         // Perform smart sync (paginated + incremental)
         val report = syncLibrarySmart(serverUrl, token, userId, appDataDir ?: "")
+        sessionStore.snapshot()?.takeIf { it.appDataDir == appDataDir }?.let {
+          sessionStore.library.reloadFromCache(it)
+        }
 
         Log.d(
           TAG,
