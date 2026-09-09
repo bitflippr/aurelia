@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -36,6 +37,7 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -46,6 +48,41 @@ import java.util.concurrent.atomic.AtomicInteger
 class PlayerSharedTransitionUiTest {
   @get:Rule
   val composeTestRule = createComposeRule()
+
+  @Test
+  fun sharedArtworkAndTextDoNotShiftWhenExpansionSettles() {
+    assertSharedContentStableAtEndpoint(expanding = true)
+  }
+
+  @Test
+  fun sharedArtworkAndTextDoNotShiftWhenCollapseSettles() {
+    assertSharedContentStableAtEndpoint(expanding = false)
+  }
+
+  private fun assertSharedContentStableAtEndpoint(expanding: Boolean) {
+    val progress = mutableFloatStateOf(if (expanding) 0f else 1f)
+    composeTestRule.setContent {
+      // Match the physical Pixel's non-integer density as well as exercising
+      // the emulator's normal density in the other transition tests.
+      CompositionLocalProvider(LocalDensity provides Density(2.4375f)) {
+        MaterialTheme { PlayerTransitionHarness(progress.floatValue, onMiniPlayerClick = {}) }
+      }
+    }
+    composeTestRule.runOnIdle { progress.floatValue = 0.5f }
+    // Less than 0.01px of motion remains, so handing drawing back from the
+    // shared overlay to the resting layout must not change the rendered pixels.
+    composeTestRule.runOnIdle { progress.floatValue = if (expanding) 0.999999f else 0.000001f }
+    val before = composeTestRule.onNodeWithTag("player-sheet").captureToImage().toPixelMap()
+    composeTestRule.runOnIdle { progress.floatValue = if (expanding) 1f else 0f }
+    val after = composeTestRule.onNodeWithTag("player-sheet").captureToImage().toPixelMap()
+    var changed = 0
+    for (y in 0 until before.height) {
+      for (x in 0 until before.width) {
+        if (kotlin.math.abs(before[x, y].red - after[x, y].red) > 0.05f) changed++
+      }
+    }
+    assertEquals("Shared content must not shift when the overlay is removed", 0, changed)
+  }
 
   @Test
   fun artworkAndLyricsBlendWithoutMovingControlsAndCanReverseMidTransition() {
@@ -321,9 +358,11 @@ private fun PlayerTransitionHarness(
             }
             Text(
               text = "Test song",
+              color = Color.White,
+              style = MaterialTheme.typography.headlineMedium,
               modifier =
                 Modifier
-                  .align(Alignment.Center)
+                  .align(Alignment.CenterStart)
                   .playerSharedBounds(
                     sharedTransitionScope = this@SharedTransitionLayout,
                     animatedVisibilityScope = this@AnimatedContent,
@@ -364,6 +403,8 @@ private fun PlayerTransitionHarness(
               )
               Text(
                 text = "Test song",
+                color = Color.White,
+                style = MaterialTheme.typography.titleSmall,
                 modifier =
                   Modifier.playerSharedBounds(
                     sharedTransitionScope = this@SharedTransitionLayout,

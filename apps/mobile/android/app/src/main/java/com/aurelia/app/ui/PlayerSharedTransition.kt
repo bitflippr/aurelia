@@ -8,8 +8,12 @@ import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector
 import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.TwoWayConverter
+import androidx.compose.animation.core.VectorizedDurationBasedAnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
@@ -120,30 +124,78 @@ private val PLAYER_SHARED_BOUNDS_TRANSFORM =
     )
   }
 
-private fun playerBoundsTransform(artwork: Boolean): BoundsTransform =
+internal fun playerBoundsTransform(artwork: Boolean): BoundsTransform =
   BoundsTransform { initial, target ->
     val expanding = if (artwork) target.width > initial.width else target.top < initial.top
-    val collapsed = if (expanding) initial else target
-    val expanded = if (expanding) target else initial
-    keyframes {
-      durationMillis = PLAYER_SHARED_TRANSITION_DURATION_MS
-      for (time in 0..PLAYER_SHARED_TRANSITION_DURATION_MS step 10) {
-        val fraction = time.toFloat() / PLAYER_SHARED_TRANSITION_DURATION_MS
+    PlayerBoundsAnimationSpec(artwork, expanding)
+  }
+
+private class PlayerBoundsAnimationSpec(
+  private val artwork: Boolean,
+  private val expanding: Boolean,
+) : FiniteAnimationSpec<Rect> {
+  override fun <V : AnimationVector> vectorize(
+    converter: TwoWayConverter<Rect, V>,
+  ): VectorizedDurationBasedAnimationSpec<V> =
+    object : VectorizedDurationBasedAnimationSpec<V> {
+      override val durationMillis = PLAYER_SHARED_TRANSITION_DURATION_MS
+      override val delayMillis = 0
+      private val durationNanos = durationMillis * 1_000_000L
+
+      private fun boundsAt(
+        playTimeNanos: Long,
+        initialValue: V,
+        targetValue: V,
+      ): Rect {
+        val initial = converter.convertFromVector(initialValue)
+        val target = converter.convertFromVector(targetValue)
+        if (playTimeNanos <= 0L) return initial
+        if (playTimeNanos >= durationNanos) return target
+        // Keyframes truncate to whole milliseconds, leaving the last moving
+        // frame several pixels short of the resting layout. Evaluate the same
+        // path at the exact seek fraction so removing the overlay cannot jump.
+        val fraction = playTimeNanos.toFloat() / durationNanos
         val expansion = if (expanding) fraction else 1f - fraction
-        val bounds: Rect =
-          if (artwork) {
-            playerArtworkBounds(
-              collapsed,
-              expanded,
-              expansion,
-            )
-          } else {
-            playerTextBounds(collapsed, expanded, expansion)
-          }
-        bounds at time using LinearEasing
+        val collapsed = if (expanding) initial else target
+        val expanded = if (expanding) target else initial
+        return if (artwork) {
+          playerArtworkBounds(collapsed, expanded, expansion)
+        } else {
+          playerTextBounds(collapsed, expanded, expansion)
+        }
+      }
+
+      override fun getValueFromNanos(
+        playTimeNanos: Long,
+        initialValue: V,
+        targetValue: V,
+        initialVelocity: V,
+      ): V = converter.convertToVector(boundsAt(playTimeNanos, initialValue, targetValue))
+
+      override fun getVelocityFromNanos(
+        playTimeNanos: Long,
+        initialValue: V,
+        targetValue: V,
+        initialVelocity: V,
+      ): V {
+        if (playTimeNanos <= 0L) return initialVelocity
+        // Match tween's 1ms finite difference, in pixels per second.
+        val time = playTimeNanos.coerceAtMost(durationNanos)
+        val previousTime = (time - 1_000_000L).coerceAtLeast(0L)
+        val current = boundsAt(time, initialValue, targetValue)
+        val previous = boundsAt(previousTime, initialValue, targetValue)
+        val seconds = (time - previousTime) / 1_000_000_000f
+        return converter.convertToVector(
+          Rect(
+            (current.left - previous.left) / seconds,
+            (current.top - previous.top) / seconds,
+            (current.right - previous.right) / seconds,
+            (current.bottom - previous.bottom) / seconds,
+          ),
+        )
       }
     }
-  }
+}
 
 private val PLAYER_ARTWORK_BOUNDS_TRANSFORM = playerBoundsTransform(artwork = true)
 private val PLAYER_TEXT_BOUNDS_TRANSFORM = playerBoundsTransform(artwork = false)
