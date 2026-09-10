@@ -5,7 +5,7 @@ import com.aurelia.app.storage.SessionStore
 import com.aurelia.app.utils.validateSession
 import uniffi.aurelia_core.Playlist
 import uniffi.aurelia_core.Song
-import uniffi.aurelia_core.buildMobileStreamUrl
+import uniffi.aurelia_core.buildAndroidStreamUrl
 import uniffi.aurelia_core.fetchSongs
 import uniffi.aurelia_core.getPlaylistItems
 import uniffi.aurelia_core.getPlaylists
@@ -69,7 +69,7 @@ internal class JellyfinAutoMediaSource(
 
   override fun streamUrl(song: Song): String {
     val session = requireSession()
-    return buildMobileStreamUrl(session.serverUrl, session.token, song.id, song.container)
+    return buildAndroidStreamUrl(session.serverUrl, session.token, song.id, song.container, song.codec)
   }
 
   private fun requireSession() =

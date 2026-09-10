@@ -1,10 +1,13 @@
 package com.aurelia.app.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
@@ -45,7 +48,7 @@ class HomeScreenUiTest {
     var shuffles = 0
     var surprises = 0
     show(
-      HomeState(recentlyAddedAlbums = listOf(album)),
+      HomeState(recentlyAddedAlbums = listOf(album), isLoadingMixes = false),
       onShuffle = { shuffles++ },
       onSurprise = { surprises++ },
     )
@@ -54,6 +57,33 @@ class HomeScreenUiTest {
     compose.onNodeWithText("Surprise me").performClick()
     assertEquals(2, shuffles)
     assertEquals(1, surprises)
+  }
+
+  @Test
+  fun pendingMixShowsAPlaceholderUntilTheListeningMixArrives() {
+    val state = show(HomeState(recentlyAddedAlbums = listOf(album)))
+    compose.onNodeWithText("Your library, on shuffle").assertDoesNotExist()
+    compose.onNodeWithContentDescription("Loading listening mixes").assertIsDisplayed()
+    compose.runOnIdle {
+      state.value =
+        state.value.copy(
+          mixes = listOf(HomeMix("mix", "First artist", null, songs)),
+          isLoadingMixes = false,
+        )
+    }
+    compose.onNodeWithText("First artist").assertIsDisplayed()
+    compose.onNodeWithContentDescription("Loading listening mixes").assertDoesNotExist()
+    compose.onNodeWithText("Your library, on shuffle").assertDoesNotExist()
+  }
+
+  @Test
+  fun completedEmptyMixLoadReplacesThePlaceholderWithShuffle() {
+    val state = show(HomeState(recentlyAddedAlbums = listOf(album)))
+    compose.onNodeWithContentDescription("Loading listening mixes").assertIsDisplayed()
+    compose.onNodeWithText("Your library, on shuffle").assertDoesNotExist()
+    compose.runOnIdle { state.value = state.value.copy(isLoadingMixes = false) }
+    compose.onNodeWithContentDescription("Loading listening mixes").assertDoesNotExist()
+    compose.onNodeWithText("Your library, on shuffle").assertIsDisplayed()
   }
 
   @Test
@@ -107,11 +137,12 @@ class HomeScreenUiTest {
     onMix: (HomeMix) -> Unit = {},
     onSong: (Song, List<Song>) -> Unit = { _, _ -> },
     onAlbum: (AlbumItem) -> Unit = {},
-  ) {
+  ): MutableState<HomeState> {
+    val currentState = mutableStateOf(state)
     compose.setContent {
       MaterialTheme {
         HomeContent(
-          state = state,
+          state = currentState.value,
           username = "Listener",
           hasPlayerBar = true,
           onRetry = onRetry,
@@ -127,6 +158,7 @@ class HomeScreenUiTest {
         )
       }
     }
+    return currentState
   }
 
   private fun song(id: String) =

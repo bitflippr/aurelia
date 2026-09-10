@@ -1,10 +1,12 @@
 package com.aurelia.app.storage
 
 import com.aurelia.app.utils.SessionData
+import uniffi.aurelia_core.AnimatedArtwork
 import uniffi.aurelia_core.Artist
 import uniffi.aurelia_core.Playlist
 import uniffi.aurelia_core.Song
 import uniffi.aurelia_core.fetchArtist
+import uniffi.aurelia_core.getAnimatedArtwork
 import uniffi.aurelia_core.getParsedLyrics
 import uniffi.aurelia_core.getPlaylistItems
 import uniffi.aurelia_core.getPlaylists
@@ -18,6 +20,16 @@ class SessionReads {
   private val artists = SessionReadCache<Pair<SessionData, String>, Artist>()
   private val lyrics = SessionReadCache<Pair<SessionData, String>, ParsedLyrics>()
   private val initialSync = SessionReadCache<SessionData, Unit>()
+  private val artwork = SessionReadCache<Pair<SessionData, String>, AnimatedArtwork?>()
+
+  suspend fun animatedArtwork(
+    session: SessionData,
+    itemId: String,
+    force: Boolean = false,
+  ): AnimatedArtwork? =
+    artwork.get(session to itemId, force) {
+      getAnimatedArtwork(session.serverUrl, session.token, itemId)
+    }
 
   suspend fun playlists(
     session: SessionData,
@@ -71,5 +83,6 @@ class SessionReads {
     artists.clear()
     lyrics.clear()
     initialSync.clear()
+    artwork.clear()
   }
 }

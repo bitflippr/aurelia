@@ -7,7 +7,6 @@ import android.graphics.drawable.BitmapDrawable
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.Crossfade
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SharedTransitionScope
@@ -20,7 +19,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -82,19 +80,16 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -111,7 +106,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.palette.graphics.Palette
 import coil.ImageLoader
-import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import com.aurelia.app.audio.AudioManager
@@ -122,6 +116,8 @@ import com.aurelia.app.player.RepeatMode
 import com.aurelia.app.storage.SessionStore
 import com.aurelia.app.ui.components.AlbumArt
 import com.aurelia.app.ui.components.AnimatedPlayPauseIcon
+import com.aurelia.app.ui.components.ArtworkCloudBackdrop
+import com.aurelia.app.ui.components.ArtworkCloudColors
 import com.aurelia.app.ui.components.AudioVisualizer
 import com.aurelia.app.ui.components.VisualizerFrameMetrics
 import com.aurelia.app.ui.components.WavyMusicSlider
@@ -286,12 +282,15 @@ internal fun PlayerBackdrop(
   albumArtUrl: String?,
   sessionStore: SessionStore,
   modifier: Modifier = Modifier,
+  frameColors: ArtworkCloudColors? = null,
+  animateArtwork: Boolean = true,
 ) {
   val context = LocalContext.current
   val debuggable = remember(context) { (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0 }
   PlayerBackdrop(
     albumArtUrl = albumArtUrl,
-    disableBlur = remember(sessionStore, debuggable) { debuggable && sessionStore.getDebugDisablePlayerBackdropBlur() },
+    frameColors = frameColors,
+    animateArtwork = animateArtwork,
     disableImageLayer =
       remember(sessionStore, debuggable) {
         debuggable &&
@@ -306,129 +305,36 @@ internal fun PlayerBackdrop(
   )
 }
 
-/**
- * Blurred album art background backdrop, matching iOS design.
- * Falls back to gradient colors when no album art is available.
- * Uses 600px target size for performance (iOS uses 1200x1200).
- */
+/** Static artwork uses color clouds; ready video shares a small blurred GPU layer. */
 @Composable
 private fun PlayerBackdrop(
   albumArtUrl: String?,
-  disableBlur: Boolean,
+  animateArtwork: Boolean,
   disableImageLayer: Boolean,
   disableTransitions: Boolean,
   modifier: Modifier = Modifier,
+  frameColors: ArtworkCloudColors? = null,
 ) {
-  val isDark = isSystemInDarkTheme()
-  val context = LocalContext.current
-  // Backdrop is blurred so doesn't need full resolution
-  val backdropSize = with(LocalDensity.current) { 600.dp.toPx().toInt() }
-
-  Box(modifier = modifier.fillMaxSize()) {
-    // Base gradient fallback
-    Box(
-      modifier =
-        Modifier
-          .fillMaxSize()
-          .background(
-            brush =
-              Brush.linearGradient(
-                colors =
-                  if (isDark) {
-                    listOf(
-                      Color(0xFF1A0F2E),
-                      Color(0xFF0A0514),
-                    )
-                  } else {
-                    listOf(
-                      Color(0xFFF8F5FF),
-                      Color(0xFFE8E0F5),
-                    )
-                  },
-                start = Offset(0f, 0f),
-                end = Offset.Infinite,
-              ),
-          ),
-    )
-
-    if (!disableImageLayer) {
-      if (disableTransitions) {
-        if (!albumArtUrl.isNullOrBlank()) {
-          AsyncImage(
-            model =
-              ImageRequest
-                .Builder(context)
-                .data(optimizedArtworkUrl(albumArtUrl, backdropSize))
-                .crossfade(false)
-                .size(backdropSize)
-                .build(),
-            contentDescription = null,
-            modifier =
-              Modifier
-                .fillMaxSize()
-                .let {
-                  if (disableBlur) it else it.blur(48.dp)
-                }.graphicsLayer {
-                  alpha = if (isDark) 0.32f else 0.40f
-                  scaleX = 1.14f
-                  scaleY = 1.14f
-                },
-            contentScale = ContentScale.Crop,
-          )
-        }
-      } else {
-        // Blurred album art layer with smooth crossfade
-        Crossfade(
-          targetState = albumArtUrl,
-          animationSpec = tween(500),
-          label = "album-art-background",
-        ) { artUrl ->
-          if (!artUrl.isNullOrBlank()) {
-            AsyncImage(
-              model =
-                ImageRequest
-                  .Builder(context)
-                  .data(optimizedArtworkUrl(artUrl, backdropSize))
-                  .crossfade(true)
-                  .size(backdropSize)
-                  .build(),
-              contentDescription = null,
-              modifier =
-                Modifier
-                  .fillMaxSize()
-                  .let {
-                    if (disableBlur) it else it.blur(48.dp)
-                  }.graphicsLayer {
-                    alpha = if (isDark) 0.32f else 0.40f
-                    scaleX = 1.14f
-                    scaleY = 1.14f
-                  },
-              contentScale = ContentScale.Crop,
-            )
-          } else {
-            // Empty box when no art to allow smooth fade out
-            Box(modifier = Modifier.fillMaxSize())
-          }
-        }
-      }
+  val video = LocalPlayerMorph.current?.video
+  val videoReady = !disableImageLayer && video?.ready == true
+  val reveal by animateFloatAsState(
+    targetValue = if (videoReady) 1f else 0f,
+    animationSpec = tween(if (disableTransitions) 0 else 450),
+    label = "artwork-backdrop-reveal",
+  )
+  val colors = rememberPlayerAlbumColors(albumArtUrl)
+  Box(modifier.fillMaxSize()) {
+    if (reveal < 1f) {
+      ArtworkCloudBackdrop(
+        colors = frameColors ?: ArtworkCloudColors(colors.primary, colors.secondary, colors.accent),
+        modifier = Modifier.fillMaxSize(),
+        animated = animateArtwork && !disableTransitions && !videoReady,
+        showClouds = !disableImageLayer,
+      )
     }
-
-    // Overlay gradient for depth
-    Box(
-      modifier =
-        Modifier
-          .fillMaxSize()
-          .background(
-            brush =
-              Brush.verticalGradient(
-                colors =
-                  listOf(
-                    Color.Black.copy(alpha = 0.14f),
-                    Color.Black.copy(alpha = if (isDark) 0.48f else 0.24f),
-                  ),
-              ),
-          ),
-    )
+    if (video != null && reveal > 0f) {
+      PlayerVideoBackdrop(video, Modifier.fillMaxSize().alpha(reveal))
+    }
   }
 }
 
@@ -451,10 +357,6 @@ fun PlayerScreen(
   val isDebuggable =
     remember(context) {
       (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
-    }
-  val disableBackdropBlur =
-    remember(sessionStore, isDebuggable) {
-      isDebuggable && sessionStore.getDebugDisablePlayerBackdropBlur()
     }
   val disableBackdropImageLayer =
     remember(sessionStore, isDebuggable) {
@@ -533,7 +435,7 @@ fun PlayerScreen(
     if (LocalPlayerMorph.current == null) {
       PlayerBackdrop(
         albumArtUrl = state.albumArtUrl,
-        disableBlur = disableBackdropBlur,
+        animateArtwork = isVisible,
         disableImageLayer = disableBackdropImageLayer,
         disableTransitions = disablePlayerTransitions,
         modifier = Modifier.fillMaxSize(),

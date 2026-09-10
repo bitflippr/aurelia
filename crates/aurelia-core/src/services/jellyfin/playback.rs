@@ -94,13 +94,13 @@ impl JellyfinClient {
         let token = self.token.as_deref().unwrap_or("");
         if utils::supports_seeking(container) {
             format!(
-                "{}?api_key={}&static=true",
+                "{}?ApiKey={}&static=true",
                 utils::build_jellyfin_url(&self.server_url, &format!("/Audio/{item_id}/stream")),
                 token
             )
         } else {
             format!(
-                "{}?api_key={}",
+                "{}?ApiKey={}",
                 utils::build_jellyfin_url(
                     &self.server_url,
                     &format!("/Audio/{item_id}/stream.aac")
@@ -114,19 +114,20 @@ impl JellyfinClient {
     ///
     /// For seekable containers, returns a direct static stream.
     /// For non-seekable containers (ALAC, etc.), uses the `/universal` endpoint which
-    /// transcodes to AAC. Uses `transcodingProtocol=http` so ExoPlayer receives a
+    /// transcodes to AAC.
+    /// Uses `transcodingProtocol=http` so ExoPlayer receives a
     /// progressive stream it can parse directly (not HLS which requires a special MediaSource).
     pub fn get_mobile_audio_stream_url(&self, item_id: &str, container: Option<&str>) -> String {
         let token = self.token.as_deref().unwrap_or("");
         if utils::supports_seeking(container) {
             format!(
-                "{}?api_key={}&static=true",
+                "{}?ApiKey={}&static=true",
                 utils::build_jellyfin_url(&self.server_url, &format!("/Audio/{}/stream", item_id)),
                 token
             )
         } else {
             format!(
-                "{}?api_key={}\
+                "{}?ApiKey={}\
                  &container=mp3,aac,m4a|aac,flac,ogg\
                  &transcodingContainer=aac\
                  &transcodingProtocol=http\

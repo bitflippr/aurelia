@@ -6,6 +6,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -13,29 +14,43 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import coil.compose.AsyncImagePainter
 import coil.compose.rememberAsyncImagePainter
 import coil.request.ImageRequest
+import com.aurelia.app.storage.SessionStore
+import com.aurelia.app.ui.components.AnimatedArtwork
+import com.aurelia.app.ui.components.ArtworkCloudColors
 import com.aurelia.app.utils.optimizedArtworkUrl
 import kotlin.math.roundToInt
 import androidx.compose.ui.geometry.lerp as lerpRect
@@ -48,6 +63,10 @@ internal data class PlayerMorph(
   val onPrimary: Color,
   val collapsedContentBottom: Float,
   val lyricsAlpha: Float,
+  val artworkItemId: String? = null,
+  val sessionStore: SessionStore? = null,
+  val onArtworkColors: ((ArtworkCloudColors) -> Unit)? = null,
+  val video: PlayerArtworkVideoState? = null,
 ) {
   fun skipBackground(enabled: Boolean): Color =
     primary.copy(alpha = if (enabled) mix(0.2f, 0.15f, expansion) else 0.08f)
@@ -62,6 +81,9 @@ internal fun rememberPlayerMorph(
   collapsedContentBottom: Float,
   showLyrics: Boolean,
   transitionsEnabled: Boolean,
+  artworkItemId: String? = null,
+  sessionStore: SessionStore? = null,
+  onArtworkColors: ((ArtworkCloudColors) -> Unit)? = null,
 ): PlayerMorph {
   val context = LocalContext.current
   val width =
@@ -92,6 +114,8 @@ internal fun rememberPlayerMorph(
       Color.White
     }
   val p = expansion.coerceIn(0f, 1f)
+  val videoLayer = rememberGraphicsLayer()
+  val video = remember(videoLayer) { PlayerArtworkVideoState(videoLayer) }
   return PlayerMorph(
     p,
     artwork,
@@ -99,6 +123,10 @@ internal fun rememberPlayerMorph(
     lerpColor(colors.onPrimary, albumOnPrimary, p),
     collapsedContentBottom,
     rememberPlayerLyricsVisibility(showLyrics, p, transitionsEnabled),
+    artworkItemId,
+    sessionStore,
+    onArtworkColors,
+    video,
   )
 }
 
@@ -106,7 +134,10 @@ internal fun rememberPlayerMorph(
 internal fun PlayerArtwork(modifier: Modifier = Modifier) {
   val morph = checkNotNull(LocalPlayerMorph.current)
   Box(
-    modifier.clip(PlayerArtworkShape(morph.expansion)).background(MaterialTheme.colorScheme.surfaceVariant),
+    modifier
+      .onSizeChanged { morph.video?.displayedSize = it }
+      .clip(PlayerArtworkShape(morph.expansion))
+      .background(MaterialTheme.colorScheme.surfaceVariant),
     contentAlignment = Alignment.Center,
   ) {
     if (morph.artwork.state is AsyncImagePainter.State.Success) {
@@ -119,6 +150,76 @@ internal fun PlayerArtwork(modifier: Modifier = Modifier) {
         modifier = Modifier.size(lerp(18.dp, 64.dp, morph.expansion)),
       )
     }
+    morph.video?.let { video ->
+      val layer = video.layer
+      Box(
+        Modifier.fillMaxSize().drawWithContent {
+          val rendered = video.renderedSize
+          if (rendered.width > 0 && rendered.height > 0) {
+            scale(size.width / rendered.width, size.height / rendered.height, Offset.Zero) {
+              drawLayer(layer)
+            }
+          }
+        },
+      )
+    }
+  }
+}
+
+@Stable
+internal class PlayerArtworkVideoState(
+  val layer: GraphicsLayer,
+) {
+  var ready by mutableStateOf(false)
+  var displayedSize by mutableStateOf(IntSize.Zero)
+  var renderedSize by mutableStateOf(IntSize.Zero)
+}
+
+/** Small allocation steps avoid rebuilding GPU layers for every pixel of a swipe. */
+internal fun artworkRenderSize(displayed: IntSize): IntSize {
+  if (displayed.width <= 0 || displayed.height <= 0) return IntSize.Zero
+
+  fun roundUp(value: Int): Int = ((value + 31) / 32) * 32
+  return IntSize(roundUp(displayed.width), roundUp(displayed.height))
+}
+
+/** Zero at mini/hidden, normal speed at full, with no abrupt acceleration at either end. */
+internal fun playerArtworkPlaybackSpeed(
+  expansion: Float,
+  lyricsAlpha: Float,
+): Float {
+  fun smooth(value: Float): Float = value.coerceIn(0f, 1f).let { it * it * (3f - 2f * it) }
+  return smooth(expansion) * smooth(1f - lyricsAlpha)
+}
+
+/** One decoder and surface live outside AnimatedContent; both endpoints draw its live layer. */
+@Composable
+internal fun PlayerArtworkVideoSource() {
+  val morph = checkNotNull(LocalPlayerMorph.current)
+  val video = morph.video ?: return
+  val layer = video.layer
+  val size = artworkRenderSize(video.displayedSize)
+  if (size == IntSize.Zero) return
+  val density = LocalDensity.current
+  val store = morph.sessionStore ?: return
+  Box(
+    Modifier
+      .requiredSize(with(density) { size.width.toDp() }, with(density) { size.height.toDp() })
+      .onSizeChanged { video.renderedSize = it }
+      .drawWithContent {
+        // Record without drawing here. The shared artwork bounds own placement and clipping.
+        layer.record { this@drawWithContent.drawContent() }
+      },
+  ) {
+    AnimatedArtwork(
+      itemId = morph.artworkItemId,
+      sessionStore = store,
+      modifier = Modifier.fillMaxSize(),
+      playbackSpeed = playerArtworkPlaybackSpeed(morph.expansion, morph.lyricsAlpha),
+      onReady = { video.ready = it },
+      // GPU readback for ambient colors can wait until the gesture has settled.
+      onColors = if (morph.expansion >= 0.999f) morph.onArtworkColors else null,
+    )
   }
 }
 

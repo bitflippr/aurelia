@@ -2,17 +2,18 @@ package com.aurelia.app.utils
 
 import android.net.Uri
 
-private val IMAGE_SIZE_QUERY_KEYS =
+private val IMAGE_REQUEST_QUERY_KEYS =
   setOf(
     "maxWidth",
     "maxHeight",
     "width",
     "height",
     "quality",
+    "animated",
   )
 
 /**
- * Adds Jellyfin image sizing parameters so we don't always download full-resolution artwork.
+ * Requests sized static covers; animated artwork uses the separate native video layer.
  * Non-Jellyfin URLs are returned unchanged.
  */
 fun optimizedArtworkUrl(
@@ -38,7 +39,7 @@ fun optimizedArtworkUrl(
 
   val builder = parsed.buildUpon().clearQuery()
   for (name in parsed.queryParameterNames) {
-    if (name in IMAGE_SIZE_QUERY_KEYS) continue
+    if (name in IMAGE_REQUEST_QUERY_KEYS) continue
     for (value in parsed.getQueryParameters(name)) {
       builder.appendQueryParameter(name, value)
     }
@@ -47,6 +48,7 @@ fun optimizedArtworkUrl(
   return builder
     .appendQueryParameter("maxWidth", clampedWidth.toString())
     .appendQueryParameter("quality", clampedQuality.toString())
+    .appendQueryParameter("animated", "false")
     .build()
     .toString()
 }

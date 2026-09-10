@@ -164,7 +164,7 @@ class HomeViewModel(
       viewModelScope.launch {
         val mixes = HomeMixStore.loadOnce(session, songs)
         if (session.appDataDir == libraryProfile && session.appDataDir == sessionStore.getAppDataDir()) {
-          mutableState.update { it.copy(mixes = mixes) }
+          mutableState.update { it.copy(mixes = mixes, isLoadingMixes = false) }
         }
       }
   }

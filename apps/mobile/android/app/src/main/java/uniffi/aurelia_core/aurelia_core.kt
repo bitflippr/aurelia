@@ -649,6 +649,8 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_aurelia_core_checksum_func_authenticate(
     ): Short
+    external fun uniffi_aurelia_core_checksum_func_build_android_stream_url(
+    ): Short
     external fun uniffi_aurelia_core_checksum_func_build_image_url(
     ): Short
     external fun uniffi_aurelia_core_checksum_func_build_mobile_stream_url(
@@ -672,6 +674,8 @@ internal object IntegrityCheckingUniffiLib {
     external fun uniffi_aurelia_core_checksum_func_fetch_artist(
     ): Short
     external fun uniffi_aurelia_core_checksum_func_fetch_songs(
+    ): Short
+    external fun uniffi_aurelia_core_checksum_func_get_animated_artwork(
     ): Short
     external fun uniffi_aurelia_core_checksum_func_get_cached_album(
     ): Short
@@ -753,6 +757,8 @@ internal object UniffiLib {
 ): Long
 external fun uniffi_aurelia_core_fn_func_authenticate(`request`: RustBuffer.ByValue,
 ): Long
+external fun uniffi_aurelia_core_fn_func_build_android_stream_url(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`itemId`: RustBuffer.ByValue,`container`: RustBuffer.ByValue,`codec`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_aurelia_core_fn_func_build_image_url(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`itemId`: RustBuffer.ByValue,`imageType`: RustBuffer.ByValue,`width`: RustBuffer.ByValue,`quality`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_aurelia_core_fn_func_build_mobile_stream_url(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`itemId`: RustBuffer.ByValue,`container`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -776,6 +782,8 @@ external fun uniffi_aurelia_core_fn_func_fetch_album(`serverUrl`: RustBuffer.ByV
 external fun uniffi_aurelia_core_fn_func_fetch_artist(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`artistId`: RustBuffer.ByValue,`appDataDir`: RustBuffer.ByValue,
 ): Long
 external fun uniffi_aurelia_core_fn_func_fetch_songs(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`userId`: RustBuffer.ByValue,`appDataDir`: RustBuffer.ByValue,
+): Long
+external fun uniffi_aurelia_core_fn_func_get_animated_artwork(`serverUrl`: RustBuffer.ByValue,`token`: RustBuffer.ByValue,`itemId`: RustBuffer.ByValue,
 ): Long
 external fun uniffi_aurelia_core_fn_func_get_cached_album(`appDataDir`: RustBuffer.ByValue,`albumId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -964,6 +972,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_aurelia_core_checksum_func_authenticate() != 43633.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_aurelia_core_checksum_func_build_android_stream_url() != 14811.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_aurelia_core_checksum_func_build_image_url() != 4929.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -998,6 +1009,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aurelia_core_checksum_func_fetch_songs() != 12314.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_aurelia_core_checksum_func_get_animated_artwork() != 48480.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_aurelia_core_checksum_func_get_cached_album() != 1296.toShort()) {
@@ -1560,6 +1574,115 @@ public object FfiConverterTypeAlbum: FfiConverterRustBuffer<Album> {
             FfiConverterOptionalMapStringString.write(value.`providerIds`, buf)
             FfiConverterOptionalString.write(value.`dateCreated`, buf)
             FfiConverterOptionalString.write(value.`dateModified`, buf)
+    }
+}
+
+
+
+data class AnimatedArtwork (
+    var `albumId`: kotlin.String
+    , 
+    var `square`: AnimatedArtworkVariant?
+    , 
+    var `tall`: AnimatedArtworkVariant?
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAnimatedArtwork: FfiConverterRustBuffer<AnimatedArtwork> {
+    override fun read(buf: ByteBuffer): AnimatedArtwork {
+        return AnimatedArtwork(
+            FfiConverterString.read(buf),
+            FfiConverterOptionalTypeAnimatedArtworkVariant.read(buf),
+            FfiConverterOptionalTypeAnimatedArtworkVariant.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AnimatedArtwork) = (
+            FfiConverterString.allocationSize(value.`albumId`) +
+            FfiConverterOptionalTypeAnimatedArtworkVariant.allocationSize(value.`square`) +
+            FfiConverterOptionalTypeAnimatedArtworkVariant.allocationSize(value.`tall`)
+    )
+
+    override fun write(value: AnimatedArtwork, buf: ByteBuffer) {
+            FfiConverterString.write(value.`albumId`, buf)
+            FfiConverterOptionalTypeAnimatedArtworkVariant.write(value.`square`, buf)
+            FfiConverterOptionalTypeAnimatedArtworkVariant.write(value.`tall`, buf)
+    }
+}
+
+
+
+/**
+ * A validated, authenticated media URL supplied by the optional artwork plugin.
+ */
+data class AnimatedArtworkVariant (
+    var `url`: kotlin.String
+    , 
+    var `contentType`: kotlin.String
+    , 
+    var `sha256`: kotlin.String
+    , 
+    var `bytes`: kotlin.ULong
+    , 
+    var `width`: kotlin.UInt
+    , 
+    var `height`: kotlin.UInt
+    , 
+    var `duration`: kotlin.Double
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeAnimatedArtworkVariant: FfiConverterRustBuffer<AnimatedArtworkVariant> {
+    override fun read(buf: ByteBuffer): AnimatedArtworkVariant {
+        return AnimatedArtworkVariant(
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterULong.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: AnimatedArtworkVariant) = (
+            FfiConverterString.allocationSize(value.`url`) +
+            FfiConverterString.allocationSize(value.`contentType`) +
+            FfiConverterString.allocationSize(value.`sha256`) +
+            FfiConverterULong.allocationSize(value.`bytes`) +
+            FfiConverterUInt.allocationSize(value.`width`) +
+            FfiConverterUInt.allocationSize(value.`height`) +
+            FfiConverterDouble.allocationSize(value.`duration`)
+    )
+
+    override fun write(value: AnimatedArtworkVariant, buf: ByteBuffer) {
+            FfiConverterString.write(value.`url`, buf)
+            FfiConverterString.write(value.`contentType`, buf)
+            FfiConverterString.write(value.`sha256`, buf)
+            FfiConverterULong.write(value.`bytes`, buf)
+            FfiConverterUInt.write(value.`width`, buf)
+            FfiConverterUInt.write(value.`height`, buf)
+            FfiConverterDouble.write(value.`duration`, buf)
     }
 }
 
@@ -3318,6 +3441,70 @@ public object FfiConverterOptionalTypeAlbum: FfiConverterRustBuffer<Album?> {
 /**
  * @suppress
  */
+public object FfiConverterOptionalTypeAnimatedArtwork: FfiConverterRustBuffer<AnimatedArtwork?> {
+    override fun read(buf: ByteBuffer): AnimatedArtwork? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeAnimatedArtwork.read(buf)
+    }
+
+    override fun allocationSize(value: AnimatedArtwork?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeAnimatedArtwork.allocationSize(value)
+        }
+    }
+
+    override fun write(value: AnimatedArtwork?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeAnimatedArtwork.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeAnimatedArtworkVariant: FfiConverterRustBuffer<AnimatedArtworkVariant?> {
+    override fun read(buf: ByteBuffer): AnimatedArtworkVariant? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeAnimatedArtworkVariant.read(buf)
+    }
+
+    override fun allocationSize(value: AnimatedArtworkVariant?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeAnimatedArtworkVariant.allocationSize(value)
+        }
+    }
+
+    override fun write(value: AnimatedArtworkVariant?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeAnimatedArtworkVariant.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
 public object FfiConverterOptionalTypeArtist: FfiConverterRustBuffer<Artist?> {
     override fun read(buf: ByteBuffer): Artist? {
         if (buf.get().toInt() == 0) {
@@ -3886,6 +4073,20 @@ public object FfiConverterMapStringMapStringString: FfiConverterRustBuffer<Map<k
     )
     }
 
+        /**
+         * Build an Android stream URL with a lossless stereo downmix for EAC3 only.
+         * All other codecs retain the existing mobile stream selection.
+         */ fun `buildAndroidStreamUrl`(`serverUrl`: kotlin.String, `token`: kotlin.String, `itemId`: kotlin.String, `container`: kotlin.String?, `codec`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_aurelia_core_fn_func_build_android_stream_url(
+    
+        FfiConverterString.lower(`serverUrl`),FfiConverterString.lower(`token`),FfiConverterString.lower(`itemId`),FfiConverterOptionalString.lower(`container`),FfiConverterOptionalString.lower(`codec`),_status)
+}
+    )
+    }
+    
+
     @Throws(AppException::class) fun `buildImageUrl`(`serverUrl`: kotlin.String, `token`: kotlin.String, `itemId`: kotlin.String, `imageType`: kotlin.String, `width`: kotlin.UInt?, `quality`: kotlin.UInt?): kotlin.String? {
             return FfiConverterOptionalString.lift(
     uniffiRustCallWithError(AppException) { _status ->
@@ -4047,6 +4248,24 @@ public object FfiConverterMapStringMapStringString: FfiConverterRustBuffer<Map<k
         { future -> UniffiLib.ffi_aurelia_core_rust_future_free_rust_buffer(future) },
         // lift function
         { FfiConverterSequenceTypeSong.lift(it) },
+        // Error FFI converter
+        AppException.ErrorHandler,
+    )
+    }
+
+        /**
+         * Discover optional animated covers without changing the library's static image URLs.
+         */
+    @Throws(AppException::class)
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `getAnimatedArtwork`(`serverUrl`: kotlin.String, `token`: kotlin.String, `itemId`: kotlin.String) : AnimatedArtwork? {
+        return uniffiRustCallAsync(
+        UniffiLib.uniffi_aurelia_core_fn_func_get_animated_artwork(FfiConverterString.lower(`serverUrl`),FfiConverterString.lower(`token`),FfiConverterString.lower(`itemId`),),
+        { future, callback, continuation -> UniffiLib.ffi_aurelia_core_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.ffi_aurelia_core_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.ffi_aurelia_core_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterOptionalTypeAnimatedArtwork.lift(it) },
         // Error FFI converter
         AppException.ErrorHandler,
     )

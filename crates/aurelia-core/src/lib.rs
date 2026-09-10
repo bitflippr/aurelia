@@ -16,6 +16,18 @@ pub fn ping() -> String {
     "pong".to_string()
 }
 
+/// Discover optional animated covers without changing the library's static image URLs.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn get_animated_artwork(
+    server_url: String,
+    token: String,
+    item_id: String,
+) -> Result<Option<models::AnimatedArtwork>, error::AppError> {
+    services::JellyfinClient::with_auth(server_url, token)
+        .get_animated_artwork(&item_id)
+        .await
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn authenticate(
     request: models::AuthRequest,
@@ -141,6 +153,35 @@ pub fn build_mobile_stream_url(
         let client = services::JellyfinClient::with_auth(server_url, token);
         client.get_mobile_audio_stream_url(&item_id, container.as_deref())
     }
+}
+
+/// Build an Android stream URL with a lossless stereo downmix for EAC3 only.
+/// All other codecs retain the existing mobile stream selection.
+#[uniffi::export]
+pub fn build_android_stream_url(
+    server_url: String,
+    token: String,
+    item_id: String,
+    container: Option<String>,
+    codec: Option<String>,
+) -> String {
+    let is_eac3 = codec
+        .as_deref()
+        .or(container.as_deref())
+        .is_some_and(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "eac3" | "e-ac-3" | "ec-3" | "ec3"
+            )
+        });
+    if !is_eac3 {
+        return build_mobile_stream_url(server_url, token, item_id, container);
+    }
+    // Mix surround channels before transport; FLAC avoids another lossy encode.
+    let url = build_mobile_stream_url(server_url, token, item_id, None);
+    url.replace("transcodingContainer=aac", "transcodingContainer=flac")
+        .replace("audioCodec=aac", "audioCodec=flac")
+        + "&maxAudioChannels=2&transcodingAudioChannels=2"
 }
 
 /// Build a progressive stream URL for the desktop Rodio engine.

@@ -737,6 +737,141 @@ public func FfiConverterTypeAlbum_lower(_ value: Album) -> RustBuffer {
 }
 
 
+public struct AnimatedArtwork: Equatable, Hashable {
+    public var albumId: String
+    public var square: AnimatedArtworkVariant?
+    public var tall: AnimatedArtworkVariant?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(albumId: String, square: AnimatedArtworkVariant?, tall: AnimatedArtworkVariant?) {
+        self.albumId = albumId
+        self.square = square
+        self.tall = tall
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AnimatedArtwork: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAnimatedArtwork: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AnimatedArtwork {
+        return
+            try AnimatedArtwork(
+                albumId: FfiConverterString.read(from: &buf), 
+                square: FfiConverterOptionTypeAnimatedArtworkVariant.read(from: &buf), 
+                tall: FfiConverterOptionTypeAnimatedArtworkVariant.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AnimatedArtwork, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.albumId, into: &buf)
+        FfiConverterOptionTypeAnimatedArtworkVariant.write(value.square, into: &buf)
+        FfiConverterOptionTypeAnimatedArtworkVariant.write(value.tall, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAnimatedArtwork_lift(_ buf: RustBuffer) throws -> AnimatedArtwork {
+    return try FfiConverterTypeAnimatedArtwork.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAnimatedArtwork_lower(_ value: AnimatedArtwork) -> RustBuffer {
+    return FfiConverterTypeAnimatedArtwork.lower(value)
+}
+
+
+/**
+ * A validated, authenticated media URL supplied by the optional artwork plugin.
+ */
+public struct AnimatedArtworkVariant: Equatable, Hashable {
+    public var url: String
+    public var contentType: String
+    public var sha256: String
+    public var bytes: UInt64
+    public var width: UInt32
+    public var height: UInt32
+    public var duration: Double
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(url: String, contentType: String, sha256: String, bytes: UInt64, width: UInt32, height: UInt32, duration: Double) {
+        self.url = url
+        self.contentType = contentType
+        self.sha256 = sha256
+        self.bytes = bytes
+        self.width = width
+        self.height = height
+        self.duration = duration
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension AnimatedArtworkVariant: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAnimatedArtworkVariant: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AnimatedArtworkVariant {
+        return
+            try AnimatedArtworkVariant(
+                url: FfiConverterString.read(from: &buf), 
+                contentType: FfiConverterString.read(from: &buf), 
+                sha256: FfiConverterString.read(from: &buf), 
+                bytes: FfiConverterUInt64.read(from: &buf), 
+                width: FfiConverterUInt32.read(from: &buf), 
+                height: FfiConverterUInt32.read(from: &buf), 
+                duration: FfiConverterDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AnimatedArtworkVariant, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.url, into: &buf)
+        FfiConverterString.write(value.contentType, into: &buf)
+        FfiConverterString.write(value.sha256, into: &buf)
+        FfiConverterUInt64.write(value.bytes, into: &buf)
+        FfiConverterUInt32.write(value.width, into: &buf)
+        FfiConverterUInt32.write(value.height, into: &buf)
+        FfiConverterDouble.write(value.duration, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAnimatedArtworkVariant_lift(_ buf: RustBuffer) throws -> AnimatedArtworkVariant {
+    return try FfiConverterTypeAnimatedArtworkVariant.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAnimatedArtworkVariant_lower(_ value: AnimatedArtworkVariant) -> RustBuffer {
+    return FfiConverterTypeAnimatedArtworkVariant.lower(value)
+}
+
+
 /**
  * Consolidated artist type with all information
  */
@@ -2760,6 +2895,54 @@ fileprivate struct FfiConverterOptionTypeAlbum: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeAnimatedArtwork: FfiConverterRustBuffer {
+    typealias SwiftType = AnimatedArtwork?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeAnimatedArtwork.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeAnimatedArtwork.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeAnimatedArtworkVariant: FfiConverterRustBuffer {
+    typealias SwiftType = AnimatedArtworkVariant?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeAnimatedArtworkVariant.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeAnimatedArtworkVariant.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeArtist: FfiConverterRustBuffer {
     typealias SwiftType = Artist?
 
@@ -3250,6 +3433,21 @@ public func authenticate(request: AuthRequest)async throws  -> LoginResponse  {
             errorHandler: FfiConverterTypeAppError_lift
         )
 }
+/**
+ * Build an Android stream URL with a lossless stereo downmix for EAC3 only.
+ * All other codecs retain the existing mobile stream selection.
+ */
+public func buildAndroidStreamUrl(serverUrl: String, token: String, itemId: String, container: String?, codec: String?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_aurelia_core_fn_func_build_android_stream_url(
+        FfiConverterString.lower(serverUrl),
+        FfiConverterString.lower(token),
+        FfiConverterString.lower(itemId),
+        FfiConverterOptionString.lower(container),
+        FfiConverterOptionString.lower(codec),$0
+    )
+})
+}
 public func buildImageUrl(serverUrl: String, token: String, itemId: String, imageType: String, width: UInt32?, quality: UInt32?)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeAppError_lift) {
     uniffi_aurelia_core_fn_func_build_image_url(
@@ -3395,6 +3593,23 @@ public func fetchSongs(serverUrl: String, token: String, userId: String, appData
             completeFunc: ffi_aurelia_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_aurelia_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterSequenceTypeSong.lift,
+            errorHandler: FfiConverterTypeAppError_lift
+        )
+}
+/**
+ * Discover optional animated covers without changing the library's static image URLs.
+ */
+public func getAnimatedArtwork(serverUrl: String, token: String, itemId: String)async throws  -> AnimatedArtwork?  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_aurelia_core_fn_func_get_animated_artwork(FfiConverterString.lower(serverUrl),FfiConverterString.lower(token),FfiConverterString.lower(itemId)
+                )
+            },
+            pollFunc: ffi_aurelia_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_aurelia_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_aurelia_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionTypeAnimatedArtwork.lift,
             errorHandler: FfiConverterTypeAppError_lift
         )
 }
@@ -3796,6 +4011,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_aurelia_core_checksum_func_authenticate() != 43633) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_aurelia_core_checksum_func_build_android_stream_url() != 14811) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_aurelia_core_checksum_func_build_image_url() != 4929) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3830,6 +4048,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_aurelia_core_checksum_func_fetch_songs() != 12314) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_aurelia_core_checksum_func_get_animated_artwork() != 48480) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_aurelia_core_checksum_func_get_cached_album() != 1296) {

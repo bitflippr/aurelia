@@ -1,0 +1,34 @@
+# Animated album artwork through a Jellyfin plugin
+
+Investigated 2026-09-09 against Jellyfin Server and Web **v12.0**, with current official mobile/TV source pinned below. This is a source-based feasibility assessment; it does not claim device playback has been tested.
+
+## Recommended minimal design
+
+Provide two representations of each known album's animation: a small looping GIF for existing image clients and the original MP4 through an authenticated plugin API for Aurelia. Keep original covers intact. An optional plugin MVC action filter can serve the GIF for ordinary album Primary image requests; other requests continue through Jellyfin. This recommendation follows the server and client behavior below.
+
+The existing server image processor explicitly returns GIF files without resizing or re-encoding, even when clients request dimensions. Animated WebP does not receive that exemption: transformed images go through a single decoded bitmap and encoding operation. GIF is therefore the conservative compatibility format; pre-generate it at a modest resolution and frame rate. MP4 is not an image format accepted by these paths. [ImageProcessor v12.0](https://github.com/jellyfin/jellyfin/blob/v12.0/src/Jellyfin.Drawing/ImageProcessor.cs#L118-L213), [SkiaEncoder v12.0](https://github.com/jellyfin/jellyfin/blob/v12.0/src/Jellyfin.Drawing.Skia/SkiaEncoder.cs#L651-L752).
+
+## Official client compatibility
+
+| Client | Evidence and expected behavior | Remaining limit |
+| --- | --- | --- |
+| Jellyfin Web v12.0 | The image loader assigns URLs directly to HTML image `src` or CSS `backgroundImage`. GIF responses should animate without frontend changes. [Source](https://github.com/jellyfin/jellyfin-web/blob/v12.0/src/components/images/imageLoader.js#L108-L126) | Browser rendering inferred from this path; test actual album cards and now-playing views. |
+| Jellyfin Android mobile | The official app describes itself as a wrapper around the official web client. The same GIF approach should apply to its web UI. [Source](https://github.com/jellyfin/jellyfin-android/blob/f905ea7cc30a58a39dfbb8ae01166ed82c1e1c89/README.md#L44-L50) | Native notification, lock-screen and OS artwork surfaces can remain static. |
+| Jellyfin iOS mobile | The official client uses a WebView loading the selected server's URL. The same web UI approach should apply. [Source](https://github.com/jellyfin/jellyfin-expo/blob/765dcea66d5b762fa7147df3e66d62f20c742fe3/components/NativeShellWebView.tsx#L206-L212) | This establishes the mobile wrapper, not Swiftfin or every native iOS surface. |
+| Jellyfin Android TV | Current source registers Coil `AnimatedImageDecoder` on Android 9+ and `GifDecoder` below. Album cards use its image loader and an ImageView target. GIF animation has explicit decoder support. [Registration](https://github.com/jellyfin/jellyfin-androidtv/blob/c2309c0dc4f1525c820f13a4ed9985e65a4c1701/app/src/main/java/org/jellyfin/androidtv/di/AppModule.kt#L124-L136), [Image loading](https://github.com/jellyfin/jellyfin-androidtv/blob/c2309c0dc4f1525c820f13a4ed9985e65a4c1701/app/src/main/java/org/jellyfin/androidtv/ui/AsyncImageView.kt#L88-L109) | This is current source, not a promise about older installed releases or every TV surface. Test a device. |
+
+## Server plugin hook and contracts
+
+Jellyfin v12.0 discovers enabled plugins implementing `IPluginServiceRegistrator` and calls `RegisterServices`. Its API startup adds MVC and plugin assemblies as application parts. This supports plugin API controllers and registration of a global MVC filter through `MvcOptions`; there is no need to replace Jellyfin's controller or edit web assets. [Plugin discovery](https://github.com/jellyfin/jellyfin/blob/v12.0/Emby.Server.Implementations/Plugins/PluginManager.cs#L201-L226), [MVC setup](https://github.com/jellyfin/jellyfin/blob/v12.0/Jellyfin.Server/Extensions/ApiServiceCollectionExtensions.cs#L111-L163).
+
+ASP.NET action filters run after authorization and model binding and may short-circuit by assigning a result. Guard the filter by the actual ImageController and selected action, Primary type, and image index zero. Resolve a MusicAlbum, or an Audio item's album, from its server item ID; return a local `PhysicalFileResult` only when a validated GIF exists. This is an implementation inference using supported MVC machinery, not a dedicated Jellyfin animated-art extension API. [Microsoft filter documentation](https://learn.microsoft.com/en-us/aspnet/core/mvc/controllers/filters?view=aspnetcore-9.0#cancellation-and-short-circuiting).
+
+Account for three image action shapes: `GetItemImage`, `GetItemImageByIndex`, and legacy `GetItemImage2` with tag/format/dimensions in the path. GET and HEAD share those actions. Preserve normal behavior when disabled, missing, unsupported, or requesting another image. Standard image reads are public. Keep MP4 discovery and streaming separately authenticated and enforce the requesting user's item visibility. [Image actions](https://github.com/jellyfin/jellyfin/blob/v12.0/Jellyfin.Api/Controllers/ImageController.cs#L552-L733).
+
+**Caching needs explicit handling:** ordinary tagged image URLs are cached for 365 days and marked immutable. Preserving existing ImageTags means clients may retain the previous cover until their cache is cleared. Use a bounded cache policy and animation-content ETag for intercepted responses, document the initial cache refresh, and do not claim immediate cache invalidation. [Cache lifetime](https://github.com/jellyfin/jellyfin/blob/v12.0/Jellyfin.Api/Controllers/ImageController.cs#L1879-L1887), [Response headers](https://github.com/jellyfin/jellyfin/blob/v12.0/Jellyfin.Api/Controllers/ImageController.cs#L2000-L2046).
+
+## Why not inject MP4 into all official clients?
+
+Jellyfin Web has a frontend plugin manager and configured frontend plugins, but these load modules bundled under its frontend plugin directory or plugin definitions already present on `window`. This does not establish automatic loading of a C# server plugin's JavaScript into every client. Replacing images with video elements requires a frontend integration and does not affect native TV or OS artwork. GIF compatibility plus a separate MP4 API avoids that dependency. [Web plugin loader](https://github.com/jellyfin/jellyfin-web/blob/v12.0/src/components/pluginManager.js#L67-L112), [Frontend configuration](https://github.com/jellyfin/jellyfin-web/blob/v12.0/src/config.json#L34-L50).
+
+Suggested verification: run an isolated v12.0 server with the plugin; check mapped album and track image GET/HEAD, unchanged unmapped and non-Primary responses, GIF frame count, ETag revalidation, MP4 range responses, unauthorized API access, hidden-album access, and browser playback. Physical mobile/TV testing remains necessary before promising broad client compatibility.

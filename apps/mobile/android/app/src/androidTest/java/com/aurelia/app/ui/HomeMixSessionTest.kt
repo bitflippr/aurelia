@@ -18,6 +18,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -38,6 +39,7 @@ class HomeMixSessionTest {
   private val requestCounts = ConcurrentHashMap<String, AtomicInteger>()
   private val models = mutableListOf<ViewModel>()
   private var mixGate: CountDownLatch? = null
+  private var emptyMixes = false
   private lateinit var session: SessionStore
   private lateinit var player: PlayerController
 
@@ -50,7 +52,7 @@ class HomeMixSessionTest {
           val path = request.path.orEmpty().substringBefore('?')
           requestCounts.getOrPut(path) { AtomicInteger() }.incrementAndGet()
           val version = if (isMix) mixRequests.incrementAndGet() else 0
-          if (isMix) mixGate?.await(5, TimeUnit.SECONDS)
+          if (isMix) mixGate?.await(10, TimeUnit.SECONDS)
           val songs =
             """
             {"Items":[{"Id":"song","Name":"Track $version","Type":"Audio",
@@ -60,6 +62,7 @@ class HomeMixSessionTest {
             """.trimIndent()
           val body =
             when {
+              isMix && emptyMixes -> """{"Items":[],"TotalRecordCount":0}"""
               path == "/Items/artist" ->
                 """{"Id":"artist","Name":"Artist","Type":"MusicArtist","Overview":"Biography"}"""
               path.endsWith("/Lyrics") -> """{"Lyrics":[{"Text":"A line of lyrics","Start":0}]}"""
@@ -103,6 +106,32 @@ class HomeMixSessionTest {
   }
 
   @Test
+  fun mixesStayLoadingUntilTheResponseIncludingAnEmptyResponse() {
+    emptyMixes = true
+    mixGate = CountDownLatch(1)
+    val home = createHome()
+    runBlocking { withTimeout(5_000) { while (mixRequests.get() < 2) delay(10) } }
+    assertTrue(home.state.value.isLoadingMixes)
+    assertTrue(
+      home.state.value.mixes
+        .isEmpty(),
+    )
+    mixGate?.countDown()
+    runBlocking { withTimeout(5_000) { home.state.first { !it.isLoadingMixes } } }
+    assertTrue(
+      home.state.value.mixes
+        .isEmpty(),
+    )
+    val recreated = createHome()
+    runBlocking { withTimeout(5_000) { recreated.state.first { !it.isLoadingMixes } } }
+    assertTrue(
+      recreated.state.value.mixes
+        .isEmpty(),
+    )
+    assertEquals(2, mixRequests.get())
+  }
+
+  @Test
   fun recreatingHomeInTheSameProcessKeepsTheOriginalMixes() {
     val first = createHome()
     val initial = awaitMixes(first)
@@ -120,10 +149,12 @@ class HomeMixSessionTest {
     mixGate = gate
     val first = createHome()
     runBlocking { withTimeout(5_000) { while (mixRequests.get() < 2) delay(10) } }
+    assertTrue(first.state.value.isLoadingMixes)
     instrumentation.runOnMainSync { first.viewModelScope.cancel() }
     val recreated = createHome()
     gate.countDown()
     assertTrue(awaitMixes(recreated).isNotEmpty())
+    assertFalse(recreated.state.value.isLoadingMixes)
     assertEquals(2, mixRequests.get())
   }
 

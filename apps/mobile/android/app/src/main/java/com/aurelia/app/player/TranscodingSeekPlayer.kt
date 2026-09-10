@@ -5,6 +5,7 @@ import androidx.media3.common.C
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import java.util.IdentityHashMap
 
 /**
  * Makes Jellyfin's offset-based transcoded streams look like a normally seekable item.
@@ -16,6 +17,7 @@ internal class TranscodingSeekPlayer(
   player: Player,
 ) : ForwardingPlayer(player) {
   private var seekOffsetMs = 0L
+  private val listeners = IdentityHashMap<Player.Listener, Player.Listener>()
 
   init {
     player.addListener(
@@ -44,6 +46,33 @@ internal class TranscodingSeekPlayer(
     command == Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM ||
       command == Player.COMMAND_SEEK_TO_MEDIA_ITEM ||
       super.isCommandAvailable(command)
+
+  override fun addListener(listener: Player.Listener) {
+    super.addListener(listener)
+    val commandListener =
+      listeners.getOrPut(listener) {
+        object : Player.Listener {
+          override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+            // Keep the original listener registered so every Media3 callback is preserved.
+            // Immediately correct its command update for EAC3 stereo streams: native FLAC
+            // seeking is unavailable, but this wrapper can seek with startTimeTicks.
+            val uri = currentMediaItem?.localConfiguration?.uri
+            val isStereoFlacTranscode =
+              uri?.getQueryParameter("transcodingContainer") == "flac" &&
+                uri.getQueryParameter("transcodingAudioChannels") == "2"
+            if (isStereoFlacTranscode) {
+              listener.onAvailableCommandsChanged(this@TranscodingSeekPlayer.availableCommands)
+            }
+          }
+        }
+      }
+    super.addListener(commandListener)
+  }
+
+  override fun removeListener(listener: Player.Listener) {
+    super.removeListener(listener)
+    listeners.remove(listener)?.let { super.removeListener(it) }
+  }
 
   override fun setMediaItems(mediaItems: List<MediaItem>) {
     seekOffsetMs = 0L

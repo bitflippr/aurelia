@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -265,6 +266,8 @@ internal fun HomeContent(
                   }
                 }
               }
+            } else if (state.isLoadingMixes) {
+              FeaturedMixPlaceholder()
             } else {
               // A new library may not have listening history or server-generated mixes yet.
               FeaturedMixCard(
@@ -380,6 +383,30 @@ private fun HomeSectionHeader(
     if (actionLabel != null) {
       TextButton(onClick = onAction, contentPadding = PaddingValues(horizontal = 4.dp)) {
         Text(actionLabel, style = MaterialTheme.typography.labelMedium)
+      }
+    }
+  }
+}
+
+@Composable
+private fun FeaturedMixPlaceholder() {
+  val colors = MaterialTheme.colorScheme
+  val placeholderColor = colors.onSurface.copy(alpha = 0.08f)
+  Surface(
+    shape = RoundedCornerShape(24.dp),
+    color = colors.surfaceContainer,
+    modifier = Modifier.semantics { contentDescription = "Loading listening mixes" },
+  ) {
+    Row(
+      Modifier.fillMaxWidth().heightIn(min = 130.dp).padding(16.dp),
+      verticalAlignment = Alignment.CenterVertically,
+      horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+      Box(Modifier.size(80.dp).background(placeholderColor, RoundedCornerShape(16.dp)))
+      Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(Modifier.fillMaxWidth(0.55f).height(10.dp).background(placeholderColor, CircleShape))
+        Box(Modifier.fillMaxWidth().height(18.dp).background(placeholderColor, CircleShape))
+        Box(Modifier.fillMaxWidth(0.8f).height(10.dp).background(placeholderColor, CircleShape))
       }
     }
   }

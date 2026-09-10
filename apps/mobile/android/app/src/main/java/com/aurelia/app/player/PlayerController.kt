@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import uniffi.aurelia_core.Song
-import uniffi.aurelia_core.buildMobileStreamUrl
+import uniffi.aurelia_core.buildAndroidStreamUrl
 
 class PlayerController(
   private val context: Context,
@@ -324,7 +324,7 @@ class PlayerController(
     serverUrl: String,
     token: String,
   ): MediaItem {
-    val uri = buildMobileStreamUrl(serverUrl, token, song.id, song.container)
+    val uri = buildAndroidStreamUrl(serverUrl, token, song.id, song.container, song.codec)
     return AureliaMediaItems.playableSong(song, uri)
   }
 

@@ -50,6 +50,7 @@ import coil.request.ImageRequest
 import com.aurelia.app.player.PlayerController
 import com.aurelia.app.storage.SessionStore
 import com.aurelia.app.ui.components.ActionButtonRow
+import com.aurelia.app.ui.components.AnimatedArtwork
 import com.aurelia.app.ui.components.BottomBarDimensions
 import com.aurelia.app.ui.components.DetailHeroGradient
 import com.aurelia.app.ui.components.PlaylistPickerDialog
@@ -180,34 +181,37 @@ fun AlbumDetailScreen(
             tonalElevation = 8.dp,
             shadowElevation = 12.dp,
           ) {
-            if (albumArtUrl.isNullOrBlank()) {
-              Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-              ) {
-                Icon(
-                  imageVector = Icons.Filled.Album,
-                  contentDescription = null,
-                  modifier = Modifier.size(80.dp),
-                  tint = colors.onSurfaceVariant.copy(alpha = 0.3f),
+            Box(Modifier.fillMaxSize()) {
+              if (albumArtUrl.isNullOrBlank()) {
+                Box(
+                  modifier = Modifier.fillMaxSize(),
+                  contentAlignment = Alignment.Center,
+                ) {
+                  Icon(
+                    imageVector = Icons.Filled.Album,
+                    contentDescription = null,
+                    modifier = Modifier.size(80.dp),
+                    tint = colors.onSurfaceVariant.copy(alpha = 0.3f),
+                  )
+                }
+              } else {
+                val context = LocalContext.current
+                // Album art is displayed at 240dp, 300px is plenty
+                val artworkSize = with(LocalDensity.current) { 300.dp.toPx().toInt() }
+                AsyncImage(
+                  model =
+                    ImageRequest
+                      .Builder(context)
+                      .data(optimizedArtworkUrl(albumArtUrl, artworkSize))
+                      .crossfade(true)
+                      .size(artworkSize)
+                      .build(),
+                  contentDescription = albumName,
+                  modifier = Modifier.fillMaxSize(),
+                  contentScale = ContentScale.Crop,
                 )
               }
-            } else {
-              val context = LocalContext.current
-              // Album art is displayed at 240dp, 300px is plenty
-              val artworkSize = with(LocalDensity.current) { 300.dp.toPx().toInt() }
-              AsyncImage(
-                model =
-                  ImageRequest
-                    .Builder(context)
-                    .data(optimizedArtworkUrl(albumArtUrl, artworkSize))
-                    .crossfade(true)
-                    .size(artworkSize)
-                    .build(),
-                contentDescription = albumName,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-              )
+              AnimatedArtwork(albumId, sessionStore, Modifier.fillMaxSize())
             }
           }
 

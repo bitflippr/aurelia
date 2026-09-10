@@ -16,6 +16,7 @@ apps/desktop/             GPUI desktop prototype
 crates/aurelia-core/      Shared domain, persistence, and Jellyfin logic
 crates/aurelia-lyrics/    Lyrics parsing and models
 crates/uniffi-bindgen/    Mobile binding-generation CLI wrapper
+plugins/jellyfin-animated-artwork/  Optional server plugin for animated album artwork
 ```
 
 ## Quick start
@@ -59,3 +60,7 @@ open apps/mobile/ios/Aurelia.xcworkspace
 ```
 
 See [docs/BUILDING.md](docs/BUILDING.md) and [docs/TESTING.md](docs/TESTING.md) for the complete workflows.
+
+The optional [Animated Album Artwork plugin](plugins/jellyfin-animated-artwork/README.md)
+provides animated covers in Jellyfin Web and an authenticated MP4 artwork API used
+by Aurelia’s Android album and player views.

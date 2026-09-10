@@ -1,23 +1,19 @@
 package com.aurelia.app.player
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import androidx.annotation.OptIn
-import androidx.core.app.NotificationCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaStyleNotificationHelper
 import androidx.media3.session.SessionError
 import com.aurelia.app.MainActivity
 import com.aurelia.app.R
@@ -42,7 +38,6 @@ import kotlinx.coroutines.launch
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaLibraryService() {
   private var mediaSession: MediaLibrarySession? = null
-  private lateinit var notificationManager: NotificationManager
   private lateinit var resumeStore: PlaybackResumeStore
   private var playbackReporting: PlaybackReporting? = null
   private val serviceJob: Job = SupervisorJob()
@@ -50,8 +45,16 @@ class PlaybackService : MediaLibraryService() {
 
   override fun onCreate() {
     super.onCreate()
-    notificationManager = getSystemService(NotificationManager::class.java)
-    ensureNotificationChannel()
+    // Media3 must own both notification updates and the started foreground-service lifecycle.
+    setMediaNotificationProvider(
+      DefaultMediaNotificationProvider
+        .Builder(this)
+        .setNotificationId(PlaybackNotificationIds.SERVICE)
+        .setChannelId(PlaybackNotificationIds.CHANNEL)
+        .setChannelName(R.string.playback_notification_channel_name)
+        .build()
+        .apply { setSmallIcon(R.drawable.ic_stat_music_note) },
+    )
 
     val exoPlayer = ExoPlayer.Builder(this).build()
     val player = TranscodingSeekPlayer(exoPlayer)
@@ -133,46 +136,6 @@ class PlaybackService : MediaLibraryService() {
     }
     mediaSession = null
     super.onDestroy()
-  }
-
-  override fun onUpdateNotification(
-    session: MediaSession,
-    startInForegroundRequired: Boolean,
-  ) {
-    val notification = buildNotification(session)
-    if (startInForegroundRequired) {
-      startForeground(PlaybackNotificationIds.SERVICE, notification)
-    } else {
-      notificationManager.notify(PlaybackNotificationIds.SERVICE, notification)
-    }
-  }
-
-  private fun buildNotification(session: MediaSession): Notification {
-    val metadata = session.player.mediaMetadata
-    val title = metadata.title?.toString() ?: getString(R.string.playback_notification_title)
-    val artist = metadata.artist?.toString() ?: getString(R.string.playback_notification_artist)
-
-    return NotificationCompat
-      .Builder(this, PlaybackNotificationIds.CHANNEL)
-      .setContentTitle(title)
-      .setContentText(artist)
-      .setSmallIcon(R.drawable.ic_stat_music_note)
-      .setContentIntent(mainActivityPendingIntent())
-      .setOngoing(session.player.playWhenReady)
-      .setOnlyAlertOnce(true)
-      .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-      .setStyle(MediaStyleNotificationHelper.MediaStyle(session))
-      .build()
-  }
-
-  private fun ensureNotificationChannel() {
-    val channel =
-      NotificationChannel(
-        PlaybackNotificationIds.CHANNEL,
-        getString(R.string.playback_notification_channel_name),
-        NotificationManager.IMPORTANCE_LOW,
-      )
-    notificationManager.createNotificationChannel(channel)
   }
 
   private fun createSessionCallback(catalog: AutoMediaCatalog): MediaLibrarySession.Callback =

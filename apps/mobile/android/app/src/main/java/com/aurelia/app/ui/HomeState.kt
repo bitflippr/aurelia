@@ -28,6 +28,7 @@ data class HomeState(
   val forgottenFavorites: List<Song> = emptyList(),
   // Instant mixes seeded from top artists/songs (loaded lazily)
   val mixes: List<HomeMix> = emptyList(),
+  val isLoadingMixes: Boolean = true,
   // Recently added albums (sorted by dateCreated)
   val recentlyAddedAlbums: List<AlbumItem> = emptyList(),
   // Random albums from library

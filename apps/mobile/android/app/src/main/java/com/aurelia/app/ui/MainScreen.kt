@@ -539,11 +539,6 @@ fun MainScreen(
             ).zIndex(1f),
       ) {
         val nowPlaying = libraryState.nowPlaying ?: return@Box
-        PlayerBackdrop(
-          albumArtUrl = nowPlaying.albumArtUrl,
-          sessionStore = sessionStore,
-          modifier = Modifier.fillMaxSize().alpha(dragProgress),
-        )
         val sharedContentKey =
           libraryState.currentSongId ?: "${nowPlaying.title}|${nowPlaying.artist}"
 
@@ -554,8 +549,17 @@ fun MainScreen(
             collapsedSheetY + miniPlayerHeightPx,
             playerState.showLyrics,
             transitionsEnabled,
+            nowPlaying.albumId ?: libraryState.currentSongId,
+            sessionStore,
           )
         CompositionLocalProvider(LocalPlayerMorph provides morph) {
+          PlayerBackdrop(
+            albumArtUrl = nowPlaying.albumArtUrl,
+            sessionStore = sessionStore,
+            modifier = Modifier.fillMaxSize().alpha(dragProgress),
+            animateArtwork = dragProgress > 0f,
+          )
+          PlayerArtworkVideoSource()
           SharedTransitionLayout {
             playerTransition.AnimatedContent(
               modifier = Modifier.fillMaxSize(),

@@ -1,5 +1,6 @@
 //! Jellyfin API service client
 
+mod artwork;
 mod base;
 mod incremental;
 mod mapping;
