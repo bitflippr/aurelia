@@ -1,6 +1,6 @@
 import AureliaCore
-import os
 import SwiftUI
+import os
 
 struct MiniPlayerView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -12,6 +12,9 @@ struct MiniPlayerView: View {
     var onTap: () -> Void
     var onLyricsTap: (() -> Void)?
     var onQueueTap: (() -> Void)?
+    var maximumWidth: CGFloat = 768
+    var usesCompactLayout = false
+    var usesSystemAccessory = false
 
     private var snapshot: PlayerSnapshot {
         playerController.snapshot
@@ -34,7 +37,7 @@ struct MiniPlayerView: View {
 
     var body: some View {
         Group {
-            if sizeClass == .regular {
+            if sizeClass == .regular && !usesCompactLayout {
                 iPadMiniPlayerBar
             } else {
                 compactMiniPlayerBar
@@ -45,6 +48,12 @@ struct MiniPlayerView: View {
         }
         .onChange(of: snapshot.currentSongId) { _, _ in
             cacheFavoriteForCurrentSongIfNeeded()
+        }
+        .onReceive(LibraryStore.shared.$snapshot) { _ in
+            guard let id = snapshot.currentSongId,
+                let favorite = LibraryStore.shared.favoriteState(for: id)
+            else { return }
+            favoriteCache[id] = favorite
         }
     }
 
@@ -89,59 +98,76 @@ struct MiniPlayerView: View {
             x: 0,
             y: 8
         )
-        .frame(maxWidth: 768)
+        .frame(maxWidth: maximumWidth)
         .contentShape(Capsule())
     }
 
     private var compactMiniPlayerBar: some View {
         HStack(spacing: 12) {
-            AlbumArtView(url: snapshot.albumArtUrl, size: .miniPlayer)
+            Button(action: onTap) {
+                HStack(spacing: 12) {
+                    AlbumArtView(
+                        url: snapshot.albumArtUrl, size: .miniPlayer,
+                        customDimension: usesSystemAccessory ? 30 : nil
+                    )
+                    .padding(.leading, usesSystemAccessory ? 6 : 0)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(snapshot.title)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-                Text(snapshot.artist)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(snapshot.title)
+                            .font(.subheadline.weight(.medium))
+                            .lineLimit(1)
+                        Text(snapshot.artist)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Now playing: \(snapshot.title), \(snapshot.artist)")
 
-            Spacer()
-
-            HStack(spacing: 16) {
+            HStack(spacing: 0) {
                 MiniPlayerUIKitButton(
+                    accessibilityLabel: "Previous track",
                     systemName: "backward.fill",
                     fontSize: 17,
                     isEnabled: snapshot.hasPrevious,
                     action: { playerController.skipPrevious() }
                 )
+                .frame(width: 44, height: 44)
 
                 MiniPlayerUIKitButton(
+                    accessibilityLabel: snapshot.isPlaying ? "Pause" : "Play",
                     systemName: snapshot.isPlaying ? "pause.fill" : "play.fill",
                     fontSize: 24,
                     fontWeight: .bold,
                     action: { togglePlayPause() }
                 )
+                .frame(width: 44, height: 44)
 
                 MiniPlayerUIKitButton(
+                    accessibilityLabel: "Next track",
                     systemName: "forward.fill",
                     fontSize: 17,
                     isEnabled: snapshot.hasNext,
                     action: { playerController.skipNext() }
                 )
+                .frame(width: 44, height: 44)
             }
         }
         .padding(.horizontal, AureliaSpacing.s)
-        .padding(.vertical, AureliaSpacing.xs)
+        .padding(.vertical, usesSystemAccessory ? 0 : AureliaSpacing.xs)
         .tint(.primary)
-        .frame(height: 64)
-        .glassEffectIfAvailable()
+        .frame(maxWidth: .infinity, minHeight: usesSystemAccessory ? 44 : 64)
+        .miniPlayerSurface(isSystemAccessory: usesSystemAccessory)
         .overlay {
             MiniPlayerVisualizerOverlay(
                 isPlaying: snapshot.isPlaying,
                 opacity: 0.25,
-                isCapsuleStyle: false,
+                isCapsuleStyle: true,
                 boost: 1.0
             )
         }
@@ -277,8 +303,9 @@ struct MiniPlayerView: View {
 
         let sessionStore = SessionStore.shared
         guard let serverUrl = sessionStore.serverUrl,
-              let token = sessionStore.token,
-              let userId = sessionStore.userId else { return }
+            let token = sessionStore.token,
+            let userId = sessionStore.userId
+        else { return }
 
         let isCurrentlyFavorite = isFavorite
         let targetFavoriteState = !isCurrentlyFavorite
@@ -295,6 +322,7 @@ struct MiniPlayerView: View {
                 )
                 await MainActor.run {
                     favoriteCache[songId] = newState
+                    LibraryStore.shared.updateFavorite(songId: songId, isFavorite: newState)
                     isFavoriteLoading = false
                 }
             } catch {
@@ -319,7 +347,8 @@ private struct MiniPlayerVisualizerOverlay: View {
 
     var body: some View {
         let visualizerState = playerController.visualizerState
-        let shouldShow = visualizerState.enabled
+        let shouldShow =
+            visualizerState.enabled
             && isPlaying
             && !visualizerState.frequencyData.isEmpty
 
@@ -364,6 +393,7 @@ private struct MiniPlayerVisualizerOverlay: View {
 /// animation, causing it to start and abruptly cancel. UIKit `UIButton` handles
 /// this correctly because it operates within the same gesture recognition system.
 private struct MiniPlayerUIKitButton: UIViewRepresentable {
+    let accessibilityLabel: String
     let systemName: String
     var fontSize: CGFloat = 17
     var fontWeight: UIImage.SymbolWeight = .semibold
@@ -372,7 +402,8 @@ private struct MiniPlayerUIKitButton: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIButton {
         let button = UIButton(type: .system)
-        button.addTarget(context.coordinator, action: #selector(Coordinator.tapped), for: .touchUpInside)
+        button.addTarget(
+            context.coordinator, action: #selector(Coordinator.tapped), for: .touchUpInside)
         button.setContentHuggingPriority(.required, for: .horizontal)
         button.setContentHuggingPriority(.required, for: .vertical)
         button.tintColor = .label
@@ -384,6 +415,7 @@ private struct MiniPlayerUIKitButton: UIViewRepresentable {
         let config = UIImage.SymbolConfiguration(pointSize: fontSize, weight: fontWeight)
         let image = UIImage(systemName: systemName, withConfiguration: config)
         button.setImage(image, for: .normal)
+        button.accessibilityLabel = accessibilityLabel
         button.isEnabled = isEnabled
         button.alpha = isEnabled ? 1 : 0.4
     }
@@ -405,9 +437,20 @@ private struct MiniPlayerUIKitButton: UIViewRepresentable {
     }
 }
 
-private extension View {
+extension View {
     @ViewBuilder
-    func glassEffectIfAvailable() -> some View {
+    fileprivate func miniPlayerSurface(isSystemAccessory: Bool) -> some View {
+        if isSystemAccessory {
+            // The tab accessory owns its Liquid Glass surface, shape, and width.
+            // Nesting another glass layer obscures its translucency and clips its edge.
+            self
+        } else {
+            aureliaGlass(in: Capsule())
+        }
+    }
+
+    @ViewBuilder
+    fileprivate func glassEffectIfAvailable() -> some View {
         if #available(iOS 26.0, *) {
             glassEffect()
         } else {

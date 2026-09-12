@@ -16,12 +16,28 @@ final class LibraryStore: ObservableObject {
     private var task: Task<Void, Never>?
     private var loadedAt: Date?
     private var generation: UInt64 = 0
+    private var favoriteOverrides: [String: Bool] = [:]
+    private var favoritesById: [String: Bool] = [:]
+    private var favoriteRevision: UInt64 = 0
+
+    func favoriteState(for songId: String) -> Bool? { favoritesById[songId] }
+
+    func updateFavorite(songId: String, isFavorite: Bool) {
+        favoriteRevision &+= 1
+        favoritesById[songId] = isFavorite
+        favoriteOverrides[songId] = isFavorite
+        guard let index = snapshot.songs?.firstIndex(where: { $0.id == songId }) else { return }
+        snapshot.songs?[index].isFavorite = isFavorite
+    }
 
     func reset() {
         generation &+= 1
         task?.cancel()
         task = nil
         loadedAt = nil
+        favoriteOverrides = [:]
+        favoritesById = [:]
+        favoriteRevision = 0
         snapshot = LibrarySnapshot()
     }
 
@@ -39,17 +55,19 @@ final class LibraryStore: ObservableObject {
         snapshot.isLoading = true
         snapshot.error = nil
         let requestGeneration = generation
+        let requestFavoriteRevision = favoriteRevision
         task = Task {
             defer { if generation == requestGeneration { task = nil; snapshot.isLoading = false } }
             if snapshot.songs == nil {
                 let cached = await Task.detached { try? loadCachedSongs(appDataDir: session.appDataDir) }.value
                 guard !Task.isCancelled, generation == requestGeneration else { return }
-                snapshot.songs = cached
+                if let cached { publish(cached) }
             }
             do {
                 let songs = try await fetchSongs(serverUrl: session.credentials.serverUrl, token: session.credentials.token, userId: session.credentials.userId, appDataDir: session.appDataDir)
                 guard !Task.isCancelled, generation == requestGeneration else { return }
-                snapshot.songs = songs
+                if favoriteRevision == requestFavoriteRevision { favoriteOverrides = [:] }
+                publish(songs)
                 loadedAt = Date()
             } catch is CancellationError {
                 return
@@ -59,4 +77,14 @@ final class LibraryStore: ObservableObject {
             }
         }
     }
+    private func publish(_ songs: [Song]) {
+        let resolved = songs.map { song in
+            var song = song
+            if let favorite = favoriteOverrides[song.id] { song.isFavorite = favorite }
+            return song
+        }
+        favoritesById = Dictionary(resolved.map { ($0.id, $0.isFavorite ?? false) }, uniquingKeysWith: { first, _ in first })
+        snapshot.songs = resolved
+    }
+
 }

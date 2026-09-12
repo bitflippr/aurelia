@@ -15,15 +15,10 @@ struct MainView: View {
             onMiniPlayerLyricsTap: { openPlayer(animated: true, panel: .lyrics) },
             onMiniPlayerQueueTap: { openPlayer(animated: true, panel: .queue) }
         )
-        .miniPlayerInset(
-            playerPresentationProgress: $playerPresentationProgress,
-            onTap: { openPlayer(animated: true, panel: .none) },
-            onLyricsTap: { openPlayer(animated: true, panel: .lyrics) },
-            onQueueTap: { openPlayer(animated: true, panel: .queue) }
-        )
         .overlay(alignment: .top) {
             GeometryReader { geometry in
-                let containerHeight = max(geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom, 1)
+                let containerHeight = max(
+                    geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom, 1)
 
                 if playerPresentationProgress > 0.0001 {
                     PlayerView(onClose: { closePlayer(animated: true) }, initialPanel: playerInitialPanel)
@@ -111,9 +106,9 @@ struct MainView: View {
         case .goSongs:
             selection = .songs
         case .goAlbums:
-            selection = .albums
+            selection = UIDevice.current.userInterfaceIdiom == .pad ? .albums : .songs
         case .goArtists:
-            selection = .artists
+            selection = UIDevice.current.userInterfaceIdiom == .pad ? .artists : .songs
         case .goSearch:
             selection = .search
         case .goSettings:
@@ -138,57 +133,4 @@ struct MainView: View {
         }
     }
 
-}
-
-private struct MiniPlayerInsetModifier: ViewModifier {
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    @Environment(\.tabBarPlacement) private var tabBarPlacement
-    @Environment(AudioPlayerController.self) private var playerController
-    @Binding var playerPresentationProgress: CGFloat
-    var onTap: () -> Void
-    var onLyricsTap: () -> Void
-    var onQueueTap: () -> Void
-
-    /// Whether this device uses the tabViewBottomAccessory for the miniplayer (compact iPhone).
-    /// When true, we skip the overlay here since the accessory handles it.
-    private var usesBottomAccessory: Bool {
-        guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
-        guard horizontalSizeClass == .compact else { return false }
-        guard tabBarPlacement != .sidebar, tabBarPlacement != .topBar else { return false }
-        return true
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .overlay(alignment: .bottom) {
-                if !usesBottomAccessory, playerController.snapshot.currentSongId != nil, playerPresentationProgress < 0.999 {
-                    MiniPlayerView(onTap: onTap, onLyricsTap: onLyricsTap, onQueueTap: onQueueTap)
-                        .padding(.horizontal, AureliaSpacing.m)
-                        .padding(.top, AureliaSpacing.s)
-                        .padding(.bottom, 8)
-                        .opacity(Double(max(CGFloat(0), CGFloat(1) - playerPresentationProgress * CGFloat(1.4))))
-                        .offset(y: playerPresentationProgress * 42)
-                        .allowsHitTesting(playerPresentationProgress < 0.95)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-    }
-}
-
-private extension View {
-    func miniPlayerInset(
-        playerPresentationProgress: Binding<CGFloat>,
-        onTap: @escaping () -> Void,
-        onLyricsTap: @escaping () -> Void,
-        onQueueTap: @escaping () -> Void
-    ) -> some View {
-        modifier(
-            MiniPlayerInsetModifier(
-                playerPresentationProgress: playerPresentationProgress,
-                onTap: onTap,
-                onLyricsTap: onLyricsTap,
-                onQueueTap: onQueueTap
-            )
-        )
-    }
 }

@@ -12,12 +12,15 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import uniffi.aurelia_core.LibrarySearchIndex
+import uniffi.aurelia_core.LibrarySearchKind
 
 @OptIn(FlowPreview::class)
 class LibraryViewModel(
@@ -27,10 +30,9 @@ class LibraryViewModel(
   private val mutableState = MutableStateFlow(LibraryState())
   val state: StateFlow<LibraryState> = mutableState
 
-  // Cache for song ID lookup - built once when songs load
   private val searchQuery = MutableStateFlow("")
-  private val mutableSearchResults = MutableStateFlow<List<SearchResult>>(emptyList())
-  val searchResults: StateFlow<List<SearchResult>> = mutableSearchResults
+  private val mutableSearchState = MutableStateFlow(LibrarySearchState())
+  val searchState: StateFlow<LibrarySearchState> = mutableSearchState
 
   private val nowPlayingMapper = NowPlayingMapper()
 
@@ -56,14 +58,53 @@ class LibraryViewModel(
     }
 
     viewModelScope.launch {
-      combine(
-        searchQuery.debounce(SEARCH_DEBOUNCE_MS),
-        mutableState.map { it.songs },
-      ) { query, songs ->
-        computeSearchResults(query, songs)
-      }.flowOn(Dispatchers.Default)
-        .collect { results ->
-          mutableSearchResults.value = results
+      sessionStore.library.snapshots
+        .map { it.songs.orEmpty() }
+        .distinctUntilChanged()
+        .collectLatest { songs ->
+          var index: LibrarySearchIndex? = null
+          val songsById by lazy { songs.associateBy { it.id } }
+          mutableSearchState.update {
+            it.copy(results = emptyList(), isSearching = it.query.trim().length >= UiConstants.MIN_SEARCH_LENGTH)
+          }
+          try {
+            searchQuery
+              .debounce { if (it.trim().length < UiConstants.MIN_SEARCH_LENGTH) 0L else SEARCH_DEBOUNCE_MS }
+              .collectLatest { query ->
+                val results =
+                  if (query.trim().length < UiConstants.MIN_SEARCH_LENGTH) {
+                    emptyList()
+                  } else {
+                    withContext(Dispatchers.Default) {
+                      val searchIndex = index ?: LibrarySearchIndex(songs).also { index = it }
+                      searchIndex.search(query, UiConstants.SEARCH_RESULTS_LIMIT.toUInt()).mapNotNull { hit ->
+                        when (hit.kind) {
+                          LibrarySearchKind.SONG -> songsById[hit.id]?.let { SearchResult.SongResult(it) }
+                          LibrarySearchKind.ALBUM ->
+                            SearchResult.Album(
+                              hit.id,
+                              hit.name,
+                              hit.artistNames.joinToString(", ").ifBlank { "Unknown Artist" },
+                              hit.artworkUrl,
+                            )
+                          LibrarySearchKind.ARTIST ->
+                            SearchResult.Artist(
+                              hit.id,
+                              hit.name,
+                              hit.songCount.toInt(),
+                              jellyfinPrimaryImageUrl(sessionStore.getServerUrl(), hit.id, sessionStore.getToken()),
+                            )
+                        }
+                      }
+                    }
+                  }
+                mutableSearchState.update {
+                  if (it.query == query) it.copy(results = results, isSearching = false) else it
+                }
+              }
+          } finally {
+            index?.close()
+          }
         }
     }
   }
@@ -82,6 +123,9 @@ class LibraryViewModel(
   }
 
   fun updateSearchQuery(query: String) {
+    if (query == searchQuery.value) return
+    mutableSearchState.value =
+      LibrarySearchState(query = query, isSearching = query.trim().length >= UiConstants.MIN_SEARCH_LENGTH)
     searchQuery.value = query
   }
 
@@ -129,64 +173,6 @@ class LibraryViewModel(
 
   fun skipNext() {
     playerController.skipNext()
-  }
-
-  private fun computeSearchResults(
-    query: String,
-    songs: List<uniffi.aurelia_core.Song>,
-  ): List<SearchResult> {
-    if (query.length < UiConstants.MIN_SEARCH_LENGTH) return emptyList()
-
-    val normalizedQuery = query.lowercase()
-    val songResults =
-      songs
-        .asSequence()
-        .filter { song ->
-          song.name.lowercase().contains(normalizedQuery) ||
-            song.artists?.any { it.lowercase().contains(normalizedQuery) } == true ||
-            song.album?.lowercase()?.contains(normalizedQuery) == true
-        }.take(UiConstants.SEARCH_RESULTS_LIMIT)
-        .map { SearchResult.SongResult(it) }
-        .toList()
-
-    val albumResults =
-      songs
-        .asSequence()
-        .filter { it.album?.lowercase()?.contains(normalizedQuery) == true }
-        .mapNotNull { song ->
-          song.albumId?.let { id ->
-            Triple(id, song.album ?: "", song.albumArtUrl)
-          }
-        }.distinctBy { it.first }
-        .take(UiConstants.SEARCH_ALBUMS_LIMIT)
-        .map { (id, name, artUrl) -> SearchResult.Album(id, name, "", artUrl) }
-        .toList()
-
-    val artistResults =
-      songs
-        .asSequence()
-        .filter { it.artists?.any { artist -> artist.lowercase().contains(normalizedQuery) } == true }
-        .flatMap { song ->
-          (song.artists ?: emptyList()).asSequence().mapIndexedNotNull { index, artist ->
-            if (artist.lowercase().contains(normalizedQuery)) {
-              val artistId = song.artistIds?.getOrNull(index)
-              Triple(artistId, artist, song)
-            } else {
-              null
-            }
-          }
-        }.groupBy { it.second }
-        .map { (name, entries) ->
-          val artistId = entries.firstOrNull()?.first
-          SearchResult.Artist(
-            id = artistId,
-            name = name,
-            songCount = entries.size,
-            imageUrl = jellyfinPrimaryImageUrl(sessionStore.getServerUrl(), artistId, sessionStore.getToken()),
-          )
-        }.take(UiConstants.SEARCH_ARTISTS_LIMIT)
-
-    return artistResults + albumResults + songResults
   }
 }
 

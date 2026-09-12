@@ -2,6 +2,7 @@ import AureliaCore
 import SwiftUI
 
 struct PlaylistsView: View {
+    var isEmbedded = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var viewModel = PlaylistViewModel()
     @State private var showCreateDialog = false
@@ -12,7 +13,7 @@ struct PlaylistsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        OptionalNavigationStack(embedded: isEmbedded) {
             let columns = [
                 GridItem(.adaptive(minimum: isWide ? 220 : 180), spacing: AureliaSpacing.m),
             ]

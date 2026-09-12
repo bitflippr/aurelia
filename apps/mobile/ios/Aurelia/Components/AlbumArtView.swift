@@ -5,6 +5,8 @@ struct AlbumArtView: View {
     let url: String?
     var size: ArtSize = .medium
     var customDimension: CGFloat?
+    var cornerRadius: CGFloat?
+    var showsBorder = true
     @State private var loadedImage: UIImage? = nil
     @State private var loadedKey: String? = nil
 
@@ -42,7 +44,7 @@ struct AlbumArtView: View {
 
     var body: some View {
         let dimension = customDimension ?? size.dimension
-        let radius = size.cornerRadius(for: dimension)
+        let radius = cornerRadius ?? size.cornerRadius(for: dimension)
         Group {
             if let loadedImage {
                 Image(uiImage: loadedImage)
@@ -58,10 +60,12 @@ struct AlbumArtView: View {
             RoundedRectangle(cornerRadius: radius, style: .continuous)
                 .fill(.quaternary)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: radius, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
-        )
+        .overlay {
+            if showsBorder {
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            }
+        }
         .task(id: requestKey(for: dimension)) {
             await loadImage(targetDimension: dimension)
         }

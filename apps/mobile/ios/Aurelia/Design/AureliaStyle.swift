@@ -1,5 +1,16 @@
 import SwiftUI
 
+private struct AureliaSidebarVisibleKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    var aureliaSidebarVisible: Bool {
+        get { self[AureliaSidebarVisibleKey.self] }
+        set { self[AureliaSidebarVisibleKey.self] = newValue }
+    }
+}
+
 enum AureliaSpacing {
     static let xs: CGFloat = 6
     static let s: CGFloat = 10
@@ -20,9 +31,20 @@ enum AureliaLayout {
     static func isWide(_ width: CGFloat) -> Bool {
         width >= 720
     }
+
+    static func usesSidebar(width: CGFloat, accessibilitySize: Bool) -> Bool {
+        width >= 760 && !accessibilitySize
+    }
+
+    static func usesSplitPlayer(width: CGFloat, height: CGFloat, accessibilitySize: Bool) -> Bool {
+        width >= 840 && height >= 600 && !accessibilitySize
+    }
 }
 
 enum AureliaPalette {
+    static func background(for scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 0.055, green: 0.06, blue: 0.075) : Color(.systemBackground)
+    }
     static func tint(for scheme: ColorScheme) -> Color {
         switch scheme {
         case .dark:
@@ -47,8 +69,9 @@ enum AureliaPalette {
 }
 
 struct AureliaBackground: View {
+    @Environment(\.colorScheme) private var scheme
     var body: some View {
-        Color(.systemBackground)
+        AureliaPalette.background(for: scheme)
             .ignoresSafeArea()
     }
 }
@@ -103,6 +126,24 @@ struct AureliaSectionHeader: View {
 }
 
 extension View {
+    @ViewBuilder
+    func aureliaGlass<S: Shape>(in shape: S, interactive: Bool = false) -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(.regular.interactive(interactive), in: shape)
+        } else {
+            background(.ultraThinMaterial, in: shape)
+        }
+    }
+
+    @ViewBuilder
+    func aureliaGlassButton(prominent: Bool = false) -> some View {
+        if #available(iOS 26, *) {
+            if prominent { buttonStyle(.glassProminent) } else { buttonStyle(.glass) }
+        } else {
+            if prominent { buttonStyle(.borderedProminent) } else { buttonStyle(.bordered) }
+        }
+    }
+
     func aureliaScreen() -> some View {
         background(AureliaBackground())
             .navigationBarTitleDisplayMode(.inline)
@@ -121,6 +162,7 @@ extension View {
 
 private struct AureliaRootTabHeaderModifier: ViewModifier {
     let title: String
+    @Environment(\.aureliaSidebarVisible) private var sidebarVisible
     @Environment(\.tabBarPlacement) private var tabBarPlacement
 
     private var resolvedTitle: String {
@@ -137,5 +179,21 @@ private struct AureliaRootTabHeaderModifier: ViewModifier {
         content
             .navigationTitle(resolvedTitle)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if title != "Settings", !sidebarVisible {
+                    ToolbarItem(placement: .topBarTrailing) { AccountMenuButton() }
+                }
+            }
+    }
+}
+
+struct AureliaGlassGroup<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        if #available(iOS 26, *) {
+            GlassEffectContainer(spacing: 12, content: content)
+        } else {
+            content()
+        }
     }
 }

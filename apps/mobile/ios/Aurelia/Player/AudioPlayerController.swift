@@ -476,6 +476,10 @@ final class AudioPlayerController: @unchecked Sendable {
     }
 
     func addToQueue(_ song: Song, serverUrl: String, token: String) {
+        guard !songQueue.isEmpty, currentIndex >= 0 else {
+            setQueue([song], serverUrl: serverUrl, token: token, autoPlay: false)
+            return
+        }
         lastServerUrl = serverUrl
         lastToken = token
         songQueue.append(song)
@@ -487,6 +491,10 @@ final class AudioPlayerController: @unchecked Sendable {
     }
 
     func playNext(_ song: Song, serverUrl: String, token: String) {
+        guard !songQueue.isEmpty, currentIndex >= 0 else {
+            setQueue([song], serverUrl: serverUrl, token: token, autoPlay: false)
+            return
+        }
         lastServerUrl = serverUrl
         lastToken = token
         let insertIndex = min(currentIndex + 1, songQueue.count)

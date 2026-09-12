@@ -67,11 +67,11 @@ class HomeScreenUiTest {
     compose.runOnIdle {
       state.value =
         state.value.copy(
-          mixes = listOf(HomeMix("mix", "First artist", null, songs)),
+          mixes = listOf(createHomeMix("mix", songs)),
           isLoadingMixes = false,
         )
     }
-    compose.onNodeWithText("First artist").assertIsDisplayed()
+    compose.onNodeWithText("Hyperpop mix").assertIsDisplayed()
     compose.onNodeWithContentDescription("Loading listening mixes").assertDoesNotExist()
     compose.onNodeWithText("Your library, on shuffle").assertDoesNotExist()
   }
@@ -88,17 +88,19 @@ class HomeScreenUiTest {
 
   @Test
   fun featuredMixLeadsActionsAndOtherMixesRemainPlayable() {
-    val first = HomeMix("mix1", "First artist", null, songs.take(2))
-    val second = HomeMix("mix2", "Second artist", null, songs.takeLast(2))
+    val first = createHomeMix("mix1", songs.take(2))
+    val second = createHomeMix("mix2", songs.takeLast(2).map { it.copy(genres = listOf("Rock")) })
     var played: HomeMix? = null
     show(HomeState(mixes = listOf(first, second)), onMix = { played = it })
-    val mix = compose.onNodeWithText("First artist")
+    val mix = compose.onNodeWithText("Hyperpop mix")
+    compose.onNodeWithText("Based on your listening").assertDoesNotExist()
+    compose.onNodeWithText("An artist").assertIsDisplayed()
     val shuffle = compose.onNodeWithText("Shuffle library")
     assertTrue(mix.getUnclippedBoundsInRoot().bottom < shuffle.getUnclippedBoundsInRoot().top)
     mix.performClick()
     assertEquals(first, played)
     mix.performTouchInput { swipeLeft() }
-    compose.onNodeWithText("Second artist").performClick()
+    compose.onNodeWithText("Rock mix").performClick()
     assertEquals(second, played)
   }
 
@@ -182,7 +184,7 @@ class HomeScreenUiTest {
       bitRate = null,
       sampleRate = null,
       codec = null,
-      genres = null,
+      genres = listOf("hyperpop"),
       premiereDate = null,
       datePlayed = null,
       dateCreated = null,

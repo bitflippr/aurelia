@@ -113,6 +113,17 @@ jobs:
         working-directory: apps/mobile/ios/AureliaCore
         run: swift test
 
+      - name: Test native iOS behavior
+        run: |
+          IOS_TEST_DEVICE=$(xcrun simctl list devices available --json | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(device["udid"] for devices in data["devices"].values() for device in devices if device["name"].startswith("iPhone")))')
+          xcodebuild test \
+            -workspace apps/mobile/ios/Aurelia.xcworkspace \
+            -scheme Aurelia \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$IOS_TEST_DEVICE" \
+            -parallel-testing-enabled NO \
+            CODE_SIGNING_ALLOWED=NO
+
       - name: Build unsigned iOS app
         run: |
           xcodebuild archive \

@@ -578,6 +578,138 @@ fileprivate struct FfiConverterString: FfiConverter {
 }
 
 
+
+
+public protocol LibrarySearchIndexProtocol: AnyObject, Sendable {
+    
+    /**
+     * Rank all kinds together; apply independent per-kind limits so tracks cannot hide artists/albums.
+     */
+    func search(query: String, limitPerKind: UInt32)  -> [LibrarySearchHit]
+    
+}
+open class LibrarySearchIndex: LibrarySearchIndexProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_aurelia_core_fn_clone_librarysearchindex(self.handle, $0) }
+    }
+public convenience init(songs: [Song]) {
+    let handle =
+        try! rustCall() {
+    uniffi_aurelia_core_fn_constructor_librarysearchindex_new(
+        FfiConverterSequenceTypeSong.lower(songs),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_aurelia_core_fn_free_librarysearchindex(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Rank all kinds together; apply independent per-kind limits so tracks cannot hide artists/albums.
+     */
+open func search(query: String, limitPerKind: UInt32) -> [LibrarySearchHit]  {
+    return try!  FfiConverterSequenceTypeLibrarySearchHit.lift(try! rustCall() {
+    uniffi_aurelia_core_fn_method_librarysearchindex_search(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(query),
+        FfiConverterUInt32.lower(limitPerKind),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLibrarySearchIndex: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = LibrarySearchIndex
+
+    public static func lift(_ handle: UInt64) throws -> LibrarySearchIndex {
+        return LibrarySearchIndex(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: LibrarySearchIndex) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LibrarySearchIndex {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: LibrarySearchIndex, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibrarySearchIndex_lift(_ handle: UInt64) throws -> LibrarySearchIndex {
+    return try FfiConverterTypeLibrarySearchIndex.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibrarySearchIndex_lower(_ value: LibrarySearchIndex) -> UInt64 {
+    return FfiConverterTypeLibrarySearchIndex.lower(value)
+}
+
+
+
+
 /**
  * Consolidated album type with all information
  */
@@ -1180,6 +1312,76 @@ public func FfiConverterTypeCredentials_lift(_ buf: RustBuffer) throws -> Creden
 #endif
 public func FfiConverterTypeCredentials_lower(_ value: Credentials) -> RustBuffer {
     return FfiConverterTypeCredentials.lower(value)
+}
+
+
+public struct LibrarySearchHit: Equatable, Hashable {
+    public var kind: LibrarySearchKind
+    public var id: String
+    public var name: String
+    public var artistNames: [String]
+    public var artworkUrl: String?
+    public var songCount: UInt32
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(kind: LibrarySearchKind, id: String, name: String, artistNames: [String], artworkUrl: String?, songCount: UInt32) {
+        self.kind = kind
+        self.id = id
+        self.name = name
+        self.artistNames = artistNames
+        self.artworkUrl = artworkUrl
+        self.songCount = songCount
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LibrarySearchHit: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLibrarySearchHit: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LibrarySearchHit {
+        return
+            try LibrarySearchHit(
+                kind: FfiConverterTypeLibrarySearchKind.read(from: &buf), 
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                artistNames: FfiConverterSequenceString.read(from: &buf), 
+                artworkUrl: FfiConverterOptionString.read(from: &buf), 
+                songCount: FfiConverterUInt32.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LibrarySearchHit, into buf: inout [UInt8]) {
+        FfiConverterTypeLibrarySearchKind.write(value.kind, into: &buf)
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterSequenceString.write(value.artistNames, into: &buf)
+        FfiConverterOptionString.write(value.artworkUrl, into: &buf)
+        FfiConverterUInt32.write(value.songCount, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibrarySearchHit_lift(_ buf: RustBuffer) throws -> LibrarySearchHit {
+    return try FfiConverterTypeLibrarySearchHit.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibrarySearchHit_lower(_ value: LibrarySearchHit) -> RustBuffer {
+    return FfiConverterTypeLibrarySearchHit.lower(value)
 }
 
 
@@ -2724,6 +2926,80 @@ public func FfiConverterTypeBackendProvider_lower(_ value: BackendProvider) -> R
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum LibrarySearchKind: Equatable, Hashable {
+    
+    case artist
+    case album
+    case song
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LibrarySearchKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLibrarySearchKind: FfiConverterRustBuffer {
+    typealias SwiftType = LibrarySearchKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LibrarySearchKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .artist
+        
+        case 2: return .album
+        
+        case 3: return .song
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LibrarySearchKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .artist:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .album:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .song:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibrarySearchKind_lift(_ buf: RustBuffer) throws -> LibrarySearchKind {
+    return try FfiConverterTypeLibrarySearchKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLibrarySearchKind_lower(_ value: LibrarySearchKind) -> RustBuffer {
+    return FfiConverterTypeLibrarySearchKind.lower(value)
+}
+
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -3226,6 +3502,31 @@ fileprivate struct FfiConverterSequenceTypeArtist: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeArtist.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeLibrarySearchHit: FfiConverterRustBuffer {
+    typealias SwiftType = [LibrarySearchHit]
+
+    public static func write(_ value: [LibrarySearchHit], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLibrarySearchHit.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LibrarySearchHit] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LibrarySearchHit]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLibrarySearchHit.read(from: &buf))
         }
         return seq
     }
@@ -4144,6 +4445,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_aurelia_core_checksum_func_update_playlist() != 21304) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_aurelia_core_checksum_method_librarysearchindex_search() != 63523) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_aurelia_core_checksum_constructor_librarysearchindex_new() != 52170) {
         return InitializationResult.apiChecksumMismatch
     }
 

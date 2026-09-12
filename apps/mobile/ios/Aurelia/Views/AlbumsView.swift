@@ -2,6 +2,7 @@ import AureliaCore
 import SwiftUI
 
 struct AlbumsView: View {
+    var isEmbedded = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var albums: [AlbumItem] = []
     @State private var isLoading = false
@@ -12,7 +13,7 @@ struct AlbumsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        OptionalNavigationStack(embedded: isEmbedded) {
             let minWidth: CGFloat = isWide ? 180 : 150
             let horizontalPadding: CGFloat = isWide ? AureliaSpacing.xl : AureliaSpacing.m
             let columns = [

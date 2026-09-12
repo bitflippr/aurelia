@@ -1,4 +1,5 @@
 pub mod library;
+pub mod library_search;
 pub mod view_data;
 
 pub use library::LibraryService;

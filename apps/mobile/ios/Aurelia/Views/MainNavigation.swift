@@ -7,6 +7,8 @@ enum MainDestination: String, CaseIterable, Identifiable, Hashable {
     case artists
     case search
     case settings
+    case favorites
+    case playlists
 
     var id: String {
         rawValue
@@ -15,22 +17,26 @@ enum MainDestination: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .home: "Home"
-        case .songs: "Songs"
+        case .songs: "Library"
         case .albums: "Albums"
         case .artists: "Artists"
         case .search: "Search"
         case .settings: "Settings"
+        case .favorites: "Favorites"
+        case .playlists: "Playlists"
         }
     }
 
     var systemImage: String {
         switch self {
         case .home: "house.fill"
-        case .songs: "music.note"
+        case .songs: "square.stack.fill"
         case .albums: "square.stack.fill"
         case .artists: "music.mic"
         case .search: "magnifyingglass"
         case .settings: "gearshape.fill"
+        case .favorites: "heart"
+        case .playlists: "music.note.list"
         }
     }
 
@@ -49,6 +55,18 @@ enum MainDestination: String, CaseIterable, Identifiable, Hashable {
             SearchView()
         case .settings:
             SettingsView()
+        case .favorites:
+            LibraryView(initialFavoritesOnly: true, showsCategories: false)
+        case .playlists:
+            PlaylistsView()
         }
+    }
+}
+
+struct OptionalNavigationStack<Content: View>: View {
+    var embedded: Bool
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        if embedded { content() } else { NavigationStack { content() } }
     }
 }

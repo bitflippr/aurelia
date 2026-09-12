@@ -52,12 +52,7 @@ internal object HomeMixStore {
               try {
                 val mixSongs = getInstantMix(serverUrl, token, seedId).take(UiConstants.MIX_SIZE_LIMIT)
                 if (mixSongs.isEmpty()) return@async null
-                HomeMix(
-                  seedId = seedId,
-                  seedTitle = mixSeedTitle(seedId, songs, mixSongs),
-                  artworkUrl = mixSongs.firstOrNull { !it.albumArtUrl.isNullOrBlank() }?.albumArtUrl,
-                  songs = mixSongs,
-                )
+                createHomeMix(seedId, mixSongs, songs)
               } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 Log.w("HomeViewModel", "Failed to load instant mix for $seedId", e)
@@ -69,16 +64,4 @@ internal object HomeMixStore {
 
       mixes
     }
-
-  private fun mixSeedTitle(
-    seedId: String,
-    songs: List<Song>,
-    mixSongs: List<Song>,
-  ): String {
-    val seedSong = songs.firstOrNull { it.id == seedId }
-    if (seedSong != null) return seedSong.name
-    val artistSong =
-      (mixSongs + songs).firstOrNull { song -> song.artistIds.orEmpty().contains(seedId) }
-    return artistSong?.artists.orEmpty().firstOrNull() ?: "Your mix"
-  }
 }

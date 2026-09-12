@@ -40,7 +40,9 @@ struct CachedImageView: View {
             return
         }
 
-        loadedImage = await ImageCache.shared.fetchImage(for: url, targetSize: targetSize)
+        let image = await ImageCache.shared.fetchImage(for: url, targetSize: targetSize)
+        guard !Task.isCancelled, loadedKey == requestKey else { return }
+        loadedImage = image
     }
 
     private func requestKey() -> String? {

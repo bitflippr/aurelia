@@ -1173,7 +1173,7 @@ private fun SecondaryControls(
 }
 
 @Composable
-private fun LyricsView(
+internal fun LyricsView(
   lyrics: Lyrics?,
   positionState: State<Long>,
   onLineClick: (Int) -> Unit,
@@ -1228,14 +1228,17 @@ private fun LyricsView(
       val density = LocalDensity.current
 
       var lastAutoScrolledLine by rememberSaveable(syncedLines) { mutableIntStateOf(-1) }
+      // Capture the index for this effect. Playback can reset before recomposition
+      // cancels the old collector, making the live derived index negative.
+      val targetLineIndex = currentLineIndex
       // Preserve a manually scrolled position when reopening the same lyric line.
-      LaunchedEffect(currentLineIndex) {
-        if (currentLineIndex >= 0 && currentLineIndex != lastAutoScrolledLine) {
-          lastAutoScrolledLine = currentLineIndex
-          snapshotFlow { lineHeights[currentLineIndex] }
+      LaunchedEffect(syncedLines, targetLineIndex) {
+        if (targetLineIndex in syncedLines.indices && targetLineIndex != lastAutoScrolledLine) {
+          lastAutoScrolledLine = targetLineIndex
+          snapshotFlow { lineHeights[targetLineIndex] }
             .collectLatest { height ->
               val offset = if (height != null) height / 2 else with(density) { 30.dp.roundToPx() }
-              listState.animateScrollToItem(currentLineIndex, scrollOffset = offset)
+              listState.animateScrollToItem(targetLineIndex, scrollOffset = offset)
             }
         }
       }

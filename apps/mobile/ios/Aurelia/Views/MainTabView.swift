@@ -1,3 +1,4 @@
+import AureliaCore
 import SwiftUI
 
 struct MainTabView: View {
@@ -6,320 +7,211 @@ struct MainTabView: View {
     var onMiniPlayerTap: () -> Void
     var onMiniPlayerLyricsTap: () -> Void
     var onMiniPlayerQueueTap: () -> Void
-    @Environment(\.tabBarPlacement) private var tabBarPlacement
     @Environment(AppViewModel.self) private var appViewModel
-    @Environment(AudioPlayerController.self) private var playerController
-    @State private var profiles: [SessionProfile] = []
-    @State private var activeProfileId: String?
-    @State private var showAddProfileSheet = false
+    @Environment(AudioPlayerController.self) private var player
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var playlists: [Playlist] = []
+    @State private var selectedPlaylist: PlaylistRoute?
+    @State private var showSettings = false
+    @State private var sidebarTrailingEdge: CGFloat = 260
 
     var body: some View {
-        Group {
-            if useSidebarAdaptable {
-                tabs
-                    .tabViewStyle(.sidebarAdaptable)
-                    .overlay(alignment: .bottomLeading) {
-                        if showsSidebarAccountMenu {
-                            SidebarAccountMenu(
-                                activeProfileLabel: activeProfileLabel,
-                                activeProfileId: activeProfileId,
-                                profiles: profiles,
-                                onAddProfile: { showAddProfileSheet = true },
-                                onLogout: handleLogout,
-                                onSwitchProfile: switchToProfile
-                            )
-                            .padding(.leading, AureliaSpacing.m)
-                            .padding(.bottom, sidebarAccountBottomPadding)
-                        }
-                    }
-            } else {
-                tabs
-                    .tabViewStyle(.automatic)
-                    .tabViewBottomAccessoryIfAvailable(isEnabled: playerController.snapshot.currentSongId != nil) {
-                        TabBarMiniPlayer(
-                            playerPresentationProgress: $playerPresentationProgress,
-                            onTap: onMiniPlayerTap,
-                            onLyricsTap: onMiniPlayerLyricsTap,
-                            onQueueTap: onMiniPlayerQueueTap
-                        )
-                    }
-                    .background(Color.clear)
-            }
-        }
-        .sheet(isPresented: $showAddProfileSheet) {
-            AddProfileSheet {
-                refreshProfiles()
-            }
-        }
-        .onAppear {
-            refreshProfiles()
-        }
-        .onChange(of: appViewModel.sessionVersion) { _, _ in
-            refreshProfiles()
-        }
-    }
-
-    private var tabs: some View {
-        TabView(selection: $selectedTab) {
-            SwiftUI.Tab(value: MainDestination.home) {
-                tabContent {
-                    HomeView()
-                }
-            } label: {
-                tabLabel(for: .home)
-            }
-
-            SwiftUI.Tab(value: MainDestination.songs) {
-                tabContent {
-                    LibraryView()
-                }
-            } label: {
-                tabLabel(for: .songs)
-            }
-
-            SwiftUI.Tab(value: MainDestination.albums) {
-                tabContent {
-                    AlbumsView()
-                }
-            } label: {
-                tabLabel(for: .albums)
-            }
-
-            SwiftUI.Tab(value: MainDestination.artists) {
-                tabContent {
-                    ArtistsView()
-                }
-            } label: {
-                tabLabel(for: .artists)
-            }
-
-            SwiftUI.Tab(value: MainDestination.search) {
-                tabContent {
-                    SearchView()
-                }
-            } label: {
-                tabLabel(for: .search)
-            }
-
-            SwiftUI.Tab(value: MainDestination.settings) {
-                tabContent {
-                    SettingsView()
-                }
-            } label: {
-                tabLabel(for: .settings)
-            }
-        }
-    }
-
-    private func tabLabel(for destination: MainDestination) -> some View {
-        Label(destination.title, systemImage: destination.systemImage)
-    }
-
-    private var useSidebarAdaptable: Bool {
-        UIDevice.current.userInterfaceIdiom == .pad
-    }
-
-    private var showsSidebarAccountMenu: Bool {
-        tabBarPlacement == .sidebar || tabBarPlacement == .topBar
-    }
-
-    private var activeProfileLabel: String {
-        if let activeProfileId,
-           let profile = profiles.first(where: { $0.id == activeProfileId })
-        {
-            return profile.username.isEmpty ? profile.userId : profile.username
-        }
-        return "Account"
-    }
-
-    private var sidebarAccountBottomPadding: CGFloat {
-        if playerController.snapshot.currentSongId == nil {
-            return AureliaSpacing.s
-        }
-        // Keep the account chip visible when the shared mini-player inset is present.
-        return 84
-    }
-
-    private func refreshProfiles() {
-        profiles = SessionStore.shared.getProfiles()
-        activeProfileId = SessionStore.shared.getActiveProfileId()
-    }
-
-    private func switchToProfile(_ profile: SessionProfile) {
-        guard profile.id != activeProfileId else { return }
-        playerController.stop()
-        guard appViewModel.switchProfile(profile.id) else { return }
-        refreshProfiles()
-    }
-
-    private func handleLogout() {
-        playerController.stop()
-        appViewModel.logout()
-    }
-
-    private struct TabBarMiniPlayer: View {
-        @Binding var playerPresentationProgress: CGFloat
-        var onTap: () -> Void
-        var onLyricsTap: () -> Void
-        var onQueueTap: () -> Void
-
-        var body: some View {
-            MiniPlayerView(onTap: onTap, onLyricsTap: onLyricsTap, onQueueTap: onQueueTap)
-                .onTapGesture(perform: onTap)
-                .opacity(Double(max(CGFloat(0), CGFloat(1) - playerPresentationProgress * CGFloat(1.4))))
-                .offset(y: playerPresentationProgress * 42)
-                .allowsHitTesting(playerPresentationProgress < 0.95)
-        }
-    }
-
-    private struct SidebarAccountMenu: View {
-        let activeProfileLabel: String
-        let activeProfileId: String?
-        let profiles: [SessionProfile]
-        let onAddProfile: () -> Void
-        let onLogout: () -> Void
-        let onSwitchProfile: (SessionProfile) -> Void
-
-        var body: some View {
-            Menu {
-                Section("Profiles") {
-                    if profiles.isEmpty {
-                        Text("No saved profiles")
-                    }
-                    ForEach(profiles) { profile in
-                        Button {
-                            onSwitchProfile(profile)
-                        } label: {
-                            if profile.id == activeProfileId {
-                                Label(profile.label, systemImage: "checkmark")
-                            } else {
-                                Text(profile.label)
+        let playerVisible = showsPlayer
+        let playbackOpacity = playerOpacity
+        GeometryReader { geometry in
+            let wide = AureliaLayout.usesSidebar(
+                width: geometry.size.width, accessibilitySize: typeSize.isAccessibilitySize)
+            let sidebarEdge = columnVisibility == .detailOnly ? 0 : sidebarTrailingEdge
+            let dockFits = (geometry.size.width - 768) / 2 >= sidebarEdge + 16
+            let playerLeading = dockFits ? max(16, (geometry.size.width - 768) / 2) : sidebarEdge + 16
+            let playerWidth = dockFits ? 768 : max(0, geometry.size.width - playerLeading - 16)
+            Group {
+                if wide {
+                    NavigationSplitView(columnVisibility: $columnVisibility) {
+                        sidebar
+                            .onGeometryChange(for: CGFloat.self) {
+                                $0.frame(in: .named("playerContainer")).maxX
+                            } action: {
+                                sidebarTrailingEdge = $0
                             }
-                        }
-                        .disabled(profile.id == activeProfileId)
+                            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
+                    } detail: {
+                        detail
+                            .environment(\.aureliaSidebarVisible, columnVisibility != .detailOnly)
                     }
-                }
-
-                Button {
-                    onAddProfile()
-                } label: {
-                    Label("Add Profile", systemImage: "plus")
-                }
-
-                Divider()
-
-                Button(role: .destructive) {
-                    onLogout()
-                } label: {
-                    Label("Log Out", systemImage: "rectangle.portrait.and.arrow.right")
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.title3)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(activeProfileLabel)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                        Text("Account")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .frame(width: 250, alignment: .leading)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .menuStyle(.borderlessButton)
-            .buttonStyle(.plain)
-        }
-    }
-
-    private func tabContent(@ViewBuilder _ content: () -> some View) -> some View {
-        content()
-            .modifier(SidebarSlideModifier())
-    }
-}
-
-private struct SidebarSlideModifier: ViewModifier {
-    @Environment(\.tabBarPlacement) private var tabBarPlacement
-    @State private var animatedWidth: CGFloat = 0
-    @State private var hasInitialWidth = false
-    @State private var isTransitioning = false
-    @State private var pendingWidth: CGFloat? = nil
-
-    func body(content: Content) -> some View {
-        Color.clear
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(
-                GeometryReader { proxy in
-                    Color.clear
-                        .preference(key: ContainerWidthKey.self, value: proxy.size.width)
-                }
-            )
-            .onPreferenceChange(ContainerWidthKey.self) { newWidth in
-                guard newWidth > 0 else { return }
-
-                guard hasInitialWidth else {
-                    animatedWidth = newWidth
-                    hasInitialWidth = true
-                    return
-                }
-
-                if isTransitioning {
-                    pendingWidth = newWidth
-                    DispatchQueue.main.async {
-                        guard let target = pendingWidth else { return }
-                        pendingWidth = nil
-                        withAnimation(.easeInOut(duration: 0.28)) {
-                            animatedWidth = target
-                        }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            isTransitioning = false
+                    .navigationSplitViewStyle(.balanced)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if playerVisible {
+                            MiniPlayerView(
+                                onTap: onMiniPlayerTap, onLyricsTap: onMiniPlayerLyricsTap,
+                                onQueueTap: onMiniPlayerQueueTap,
+                                maximumWidth: playerWidth,
+                                usesCompactLayout: playerWidth < 700
+                            )
+                            .frame(width: playerWidth)
+                            .padding(.leading, playerLeading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 10)
+                            .opacity(playbackOpacity)
                         }
                     }
                 } else {
-                    animatedWidth = newWidth
+                    compactTabs
+                        .compactPlayerAccessory(isEnabled: playerVisible) {
+                            MiniPlayerView(
+                                onTap: onMiniPlayerTap, onLyricsTap: onMiniPlayerLyricsTap,
+                                onQueueTap: onMiniPlayerQueueTap,
+                                usesSystemAccessory: usesNativePlayerAccessory
+                            )
+                            .opacity(playbackOpacity)
+                        }
+                        .environment(\.horizontalSizeClass, .compact)
                 }
             }
-            .overlay {
-                content
-                    .frame(width: max(animatedWidth, 1))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .clipped()
+            .coordinateSpace(name: "playerContainer")
+            .onChange(of: selectedTab) { _, destination in
+                if !wide, [.albums, .artists, .favorites, .playlists].contains(destination) {
+                    selectedTab = .songs
+                    selectedPlaylist = nil
+                }
             }
-            .onChange(of: tabBarPlacement) { _, _ in
-                isTransitioning = true
+            .onChange(of: wide) { _, newValue in
+                if !newValue, ![MainDestination.home, .search, .songs].contains(selectedTab) {
+                    selectedTab = .songs
+                    selectedPlaylist = nil
+                }
             }
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) { Button("Done") { showSettings = false } }
+                }
+        }
+        .onChange(of: selectedTab) { _, destination in
+            if destination == .settings {
+                showSettings = true
+                selectedTab = .home
+            }
+            if destination != .playlists { selectedPlaylist = nil }
+        }
+        .task(id: appViewModel.sessionVersion) {
+            playlists = []
+            selectedPlaylist = nil
+            guard let session = SessionStore.shared.snapshot() else { return }
+            let fetched = try? await getPlaylists(
+                serverUrl: session.credentials.serverUrl, token: session.credentials.token,
+                userId: session.credentials.userId)
+            guard !Task.isCancelled, SessionStore.shared.getAppDataDir() == session.appDataDir else {
+                return
+            }
+            playlists = fetched ?? []
+        }
     }
-}
 
-private struct ContainerWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
+    private var showsPlayer: Bool {
+        player.snapshot.currentSongId != nil && playerPresentationProgress < 0.999
     }
-}
+    private var usesNativePlayerAccessory: Bool {
+        if #available(iOS 26, *) { return true }
+        return false
+    }
+    private var playerOpacity: Double { Double(max(0, 1 - playerPresentationProgress * 1.4)) }
 
-private extension View {
+    private var sidebar: some View {
+        List(
+            selection: Binding<MainDestination?>(
+                get: { selectedPlaylist == nil ? selectedTab : nil },
+                set: { destination in
+                    guard let destination else { return }
+                    selectedPlaylist = nil
+                    selectedTab = destination
+                }
+            )
+        ) {
+            sidebarLink(.home)
+            sidebarLink(.search)
+            Section("Library") {
+                sidebarLink(.songs, title: "Songs", icon: "music.note")
+                sidebarLink(.albums)
+                sidebarLink(.artists)
+                sidebarLink(.favorites)
+                sidebarLink(.playlists)
+            }
+            if !playlists.isEmpty {
+                Section("Your playlists") {
+                    ForEach(playlists, id: \.id) { playlist in
+                        Button {
+                            selectedTab = .playlists
+                            selectedPlaylist = PlaylistRoute(id: playlist.id, name: playlist.name)
+                        } label: {
+                            Label(playlist.name, systemImage: "music.note.list")
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                        }
+                        .listRowBackground(
+                            selectedPlaylist?.id == playlist.id ? Color.accentColor.opacity(0.16) : Color.clear)
+                    }
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .navigationTitle("Aurelia")
+        .safeAreaInset(edge: .bottom) {
+            AccountMenuButton(expanded: true)
+                .padding(14)
+                .aureliaGlass(in: RoundedRectangle(cornerRadius: 20))
+                .padding(12)
+                .padding(.bottom, showsPlayer ? 80 : 0)
+        }
+    }
+
+    private func sidebarLink(
+        _ destination: MainDestination, title: String? = nil, icon: String? = nil
+    ) -> some View {
+        NavigationLink(value: destination) {
+            Label(title ?? destination.title, systemImage: icon ?? destination.systemImage)
+        }
+    }
+
     @ViewBuilder
-    func tabViewBottomAccessoryIfAvailable(isEnabled: Bool, @ViewBuilder content: () -> some View) -> some View {
+    private var detail: some View {
+        if selectedTab == .playlists, let selectedPlaylist {
+            NavigationStack {
+                PlaylistDetailView(playlistId: selectedPlaylist.id, playlistName: selectedPlaylist.name)
+            }
+            .id(selectedPlaylist.id)
+        } else {
+            selectedTab.destinationView()
+                .id(selectedTab)
+        }
+    }
+
+    private var compactTabs: some View {
+        TabView(selection: $selectedTab) {
+            Tab("Home", systemImage: "house", value: MainDestination.home) { HomeView() }
+            Tab("Search", systemImage: "magnifyingglass", value: MainDestination.search) { SearchView() }
+            Tab("Library", systemImage: "square.stack", value: MainDestination.songs) { LibraryView() }
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder
+    fileprivate func compactPlayerAccessory<Accessory: View>(
+        isEnabled: Bool, @ViewBuilder content: () -> Accessory
+    )
+        -> some View
+    {
         if #available(iOS 26.1, *) {
             tabViewBottomAccessory(isEnabled: isEnabled, content: content)
+        } else if #available(iOS 26, *) {
+            // The original iOS 26 API does not have the isEnabled overload.
+            tabViewBottomAccessory { if isEnabled { content() } }
         } else {
-            overlay(alignment: .bottom) {
-                if isEnabled {
-                    content()
-                        .padding(.bottom, 49) // Approximate standard Tab Bar height
-                }
+            safeAreaInset(edge: .bottom, spacing: 0) {
+                if isEnabled { content().padding(.horizontal, 12).padding(.bottom, 6) }
             }
         }
     }

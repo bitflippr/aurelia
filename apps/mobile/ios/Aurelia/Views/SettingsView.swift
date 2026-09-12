@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var profiles: [SessionProfile] = []
     @State private var activeProfileId: String?
     @State private var showAddProfileSheet = false
+    @AppStorage("animatedArtworkEnabled") private var animatedArtworkEnabled = true
 
     var body: some View {
         NavigationStack {
@@ -84,6 +85,12 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(viewModel.isClearing)
+            }
+
+            Section {
+                Toggle("Animated artwork", isOn: $animatedArtworkEnabled)
+            } header: { Text("Now Playing") } footer: {
+                Text("Play album artwork loops when available. Motion pauses with playback and respects Reduce Motion.")
             }
 
             Section("Visualizer") {

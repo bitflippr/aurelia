@@ -6,130 +6,180 @@ struct AlbumDetailView: View {
     let albumName: String
 
     @Environment(AudioPlayerController.self) private var playerController
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var album: Album?
     @State private var songs: [Song] = []
     @State private var isLoading = true
     @State private var error: String?
+    @State private var didLoad = false
+    @State private var showPlaylists = false
 
-    private var isWide: Bool {
-        horizontalSizeClass == .regular
-    }
+    private var artworkUrl: String? { album?.albumArtUrl ?? songs.first?.albumArtUrl }
 
     var body: some View {
-        let horizontalPadding: CGFloat = isWide ? AureliaSpacing.xl : AureliaSpacing.m
-        let artDimension: CGFloat = isWide ? 260 : 220
-
-        Group {
-            if isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error {
-                ContentUnavailableView("Failed to Load", systemImage: "exclamationmark.triangle", description: Text(error))
-            } else {
-                ScrollView {
-                    if isWide {
-                        HStack(alignment: .top, spacing: AureliaSpacing.xl) {
-                            albumSummary(artDimension: artDimension)
-                                .frame(maxWidth: 360)
-
-                            albumSongs
-                                .frame(maxWidth: .infinity)
-                        }
-                        .padding(.horizontal, horizontalPadding)
-                        .padding(.vertical, AureliaSpacing.l)
+        GeometryReader { geometry in
+            let wide = horizontalSizeClass == .regular && geometry.size.width >= 700 && !typeSize.isAccessibilitySize
+            ZStack(alignment: .top) {
+                AureliaBackground()
+                AlbumDetailBackdrop(artworkUrl: artworkUrl)
+                    .ignoresSafeArea(.container, edges: .top)
+                    .albumBackgroundExtension()
+                Group {
+                    if isLoading {
+                        ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if let error {
+                        ContentUnavailableView(
+                            "Failed to Load", systemImage: "exclamationmark.triangle", description: Text(error))
                     } else {
-                        VStack(spacing: AureliaSpacing.l) {
-                            albumSummary(artDimension: artDimension)
-                            albumSongs
+                        ScrollView {
+                            if wide {
+                                HStack(alignment: .top, spacing: 36) {
+                                    albumSummary(artDimension: 260).frame(width: min(360, geometry.size.width * 0.38))
+                                    albumSongs.frame(maxWidth: .infinity)
+                                }
+                                .padding(.horizontal, 28)
+                                .padding(.vertical, 24)
+                            } else {
+                                VStack(alignment: .leading, spacing: 28) {
+                                    albumSummary(artDimension: min(208, geometry.size.width - 40))
+                                    albumSongs
+                                }
+                                .padding(.horizontal, 20)
+                                .padding(.top, 12)
+                                .padding(.bottom, 24)
+                            }
                         }
-                        .padding(.horizontal, horizontalPadding)
-                        .padding(.vertical, AureliaSpacing.l)
                     }
                 }
             }
         }
-        .navigationTitle(albumName)
+        .navigationTitle("Album")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { loadAlbum() }
-        .aureliaScreen()
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .navigationDestination(for: ArtistRoute.self) { ArtistDetailView(artistId: $0.id, artistName: $0.name) }
+        .sheet(isPresented: $showPlaylists) { AddSongsToPlaylistView(songs: songs) }
+        .onAppear {
+            guard !didLoad else { return }
+            didLoad = true
+            loadAlbum()
+        }
     }
 
     private func albumSummary(artDimension: CGFloat) -> some View {
-        GlassCard(cornerRadius: AureliaRadius.l, padding: AureliaSpacing.l) {
-            VStack(spacing: AureliaSpacing.m) {
-                AlbumArtView(url: album?.albumArtUrl ?? songs.first?.albumArtUrl, size: .large, customDimension: artDimension)
+        VStack(alignment: .leading, spacing: 24) {
+            AlbumArtView(url: artworkUrl, size: .large, customDimension: artDimension)
+                .clipShape(RoundedRectangle(cornerRadius: 24))
+                .shadow(color: .black.opacity(0.2), radius: 16, y: 10)
+                .frame(maxWidth: .infinity)
 
-                VStack(spacing: 4) {
-                    Text(album?.name ?? albumName)
-                        .font(.title2.bold())
-                    Text(album?.artist ?? songs.first?.artists?.first ?? "")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack(spacing: 16) {
-                    Button {
-                        playSongs(startIndex: 0)
-                    } label: {
-                        Label("Play", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-
-                    Button {
-                        shuffleSongs()
-                    } label: {
-                        Label("Shuffle", systemImage: "shuffle")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(album?.name ?? albumName)
+                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
+                    .accessibilityAddTraits(.isHeader)
+                artistLink
+                Text(
+                    "Album · \(songs.count) songs · \(TimeFormatter.formatDuration(Int64(songs.reduce(0.0) { $0 + ($1.duration ?? 0) } * 1000)))"
+                )
+                .font(.subheadline).foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            AureliaGlassGroup {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 10) { playbackActions }
+                    VStack(alignment: .leading, spacing: 10) { playbackActions }
+                }
+                .controlSize(.large)
+            }
+            .disabled(songs.isEmpty)
         }
     }
 
+    @ViewBuilder private var artistLink: some View {
+        let name = album?.artist ?? songs.first?.artists?.joined(separator: ", ") ?? ""
+        let artists = songs.first.map { SongNavigation.artists(for: $0) } ?? []
+        if artists.count == 1, let artist = artists.first {
+            NavigationLink(value: artist) {
+                Label(name, systemImage: "chevron.right")
+                    .labelStyle(ArtistLinkLabelStyle())
+                    .frame(minHeight: 44)
+            }.buttonStyle(.plain)
+        } else if !artists.isEmpty {
+            Menu {
+                ForEach(artists, id: \.id) { artist in
+                    NavigationLink(value: artist) { Text(artist.name) }
+                }
+            } label: {
+                Label(name, systemImage: "chevron.right")
+                    .labelStyle(ArtistLinkLabelStyle())
+                    .frame(minHeight: 44)
+            }
+        } else if !name.isEmpty {
+            Text(name).font(.headline).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder private var playbackActions: some View {
+        Button {
+            playSongs(startIndex: 0)
+        } label: {
+            Label("Play", systemImage: "play.fill").frame(minWidth: 72)
+        }.aureliaGlassButton(prominent: true)
+        Button {
+            shuffleSongs()
+        } label: {
+            Label("Shuffle", systemImage: "shuffle").frame(minWidth: 72)
+        }.aureliaGlassButton()
+        Menu {
+            Button("Add to Queue", systemImage: "text.badge.plus") { addAlbumToQueue() }
+            Button("Add to Playlist", systemImage: "music.note.list") { showPlaylists = true }
+        } label: {
+            Image(systemName: "ellipsis").frame(minWidth: 16, minHeight: 20)
+        }
+        .aureliaGlassButton()
+        .accessibilityLabel("Album actions")
+    }
+
     private var albumSongs: some View {
-        GlassCard(cornerRadius: AureliaRadius.l, padding: AureliaSpacing.m) {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Tracks").font(.system(.title2, design: .rounded, weight: .bold)).accessibilityAddTraits(.isHeader)
             if songs.isEmpty {
                 Text("No songs available for this album yet.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, AureliaSpacing.l)
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 24)
             } else {
                 LazyVStack(spacing: 0) {
                     let groupedSongs = groupSongsByDisc(songs)
                     ForEach(groupedSongs) { group in
                         if group.showDiscHeader {
-                            HStack {
-                                Text("Disc \(group.discNumber)")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.vertical, 6)
-                                    .padding(.horizontal, 12)
-                                    .background(.ultraThinMaterial, in: Capsule())
-                                Spacer()
-                            }
-                            .padding(.vertical, 6)
+                            Text("Disc \(group.discNumber)")
+                                .font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 12)
                         }
-
                         ForEach(Array(group.songs.enumerated()), id: \.element.id) { index, song in
                             let globalIndex = songs.firstIndex(where: { $0.id == song.id }) ?? 0
                             SongRow(
-                                song: song,
-                                isPlaying: song.id == playerController.snapshot.currentSongId,
+                                song: song, isPlaying: song.id == playerController.snapshot.currentSongId,
                                 showTrackNumber: true
                             ) {
                                 playSongs(startIndex: globalIndex)
                             }
-                            if index != group.songs.count - 1 {
-                                Divider()
-                            }
+                            if index != group.songs.count - 1 { Divider() }
                         }
                     }
                 }
             }
+        }
+    }
+
+    private func addAlbumToQueue() {
+        guard let session = SessionStore.shared.snapshot() else { return }
+        for song in songs {
+            playerController.addToQueue(
+                song, serverUrl: session.credentials.serverUrl, token: session.credentials.token)
         }
     }
 
@@ -227,15 +277,17 @@ struct AlbumDetailView: View {
 
     private func playSongs(startIndex: Int) {
         guard let serverUrl = SessionStore.shared.serverUrl,
-              let token = SessionStore.shared.token,
-              !songs.isEmpty else { return }
+            let token = SessionStore.shared.token,
+            !songs.isEmpty
+        else { return }
         playerController.setQueue(songs, serverUrl: serverUrl, token: token, startIndex: startIndex)
     }
 
     private func shuffleSongs() {
         guard let serverUrl = SessionStore.shared.serverUrl,
-              let token = SessionStore.shared.token,
-              !songs.isEmpty else { return }
+            let token = SessionStore.shared.token,
+            !songs.isEmpty
+        else { return }
         playerController.setQueue(songs.shuffled(), serverUrl: serverUrl, token: token)
     }
 }
@@ -245,4 +297,50 @@ struct DiscGroup: Identifiable {
     let discNumber: Int
     let songs: [Song]
     let showDiscHeader: Bool
+}
+
+private struct ArtistLinkLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.title.font(.headline)
+            configuration.icon.font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct AlbumDetailBackdrop: View {
+    let artworkUrl: String?
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                if let artworkUrl, let url = URL(string: artworkUrl) {
+                    CachedImageView(url: url, contentMode: .fill, targetSize: CGSize(width: 160, height: 160))
+                        .frame(width: geometry.size.width, height: 640)
+                        .clipped()
+                        .blur(radius: 40)
+                        .scaleEffect(1.15)
+                        .opacity(scheme == .dark ? 0.38 : 0.2)
+                }
+                LinearGradient(
+                    colors: [.clear, AureliaPalette.background(for: scheme)], startPoint: .top, endPoint: .bottom)
+            }
+            .frame(width: geometry.size.width, height: 640)
+            .clipped()
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+}
+
+extension View {
+    @ViewBuilder
+    fileprivate func albumBackgroundExtension() -> some View {
+        if #available(iOS 26, *) {
+            backgroundExtensionEffect()
+        } else {
+            self
+        }
+    }
 }

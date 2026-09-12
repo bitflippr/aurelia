@@ -386,6 +386,8 @@ fun MainScreen(
             sessionStore = sessionStore,
             playerController = playerController,
             onOpenPlayer = { openPlayerAnimated() },
+            onNavigateToAlbum = { navController.navigate(it) },
+            onNavigateToArtist = { navController.navigate(it) },
             hasPlayerBar = libraryState.nowPlaying != null,
             playlistViewModel = playlistViewModel,
           )

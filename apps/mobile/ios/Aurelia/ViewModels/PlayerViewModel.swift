@@ -16,6 +16,7 @@ final class PlayerViewModel: @unchecked Sendable {
     var queue: [Song] = []
     var currentQueueIndex: Int = -1
     var lyrics: Lyrics?
+    var lyricsUnavailable = false
     var showLyrics = false
     var isShuffled = false
     var repeatMode: RepeatMode = .none
@@ -92,7 +93,9 @@ final class PlayerViewModel: @unchecked Sendable {
         setIfChanged(\.currentAlbumId, snapshot.currentAlbumId)
         setIfChanged(\.currentArtistId, snapshot.currentArtistId)
         setIfChanged(\.currentAlbumName, snapshot.currentAlbumName)
-        setIfChanged(\.isFavorite, newSongId.flatMap { favoriteCache[$0] } ?? false)
+        setIfChanged(
+            \.isFavorite, newSongId.flatMap { LibraryStore.shared.favoriteState(for: $0) ?? favoriteCache[$0] } ?? false
+        )
         setIfChanged(\.playbackSpeed, snapshot.playbackSpeed)
         setIfChanged(\.codec, snapshot.codec)
         setIfChanged(\.bitRate, snapshot.bitRate)
@@ -150,13 +153,16 @@ final class PlayerViewModel: @unchecked Sendable {
 
     private func fetchLyrics(songId: String?, artist: String, title: String) {
         lyrics = nil
+        lyricsUnavailable = false
 
         Task { @MainActor [self] in
             let serverUrl = sessionStore.serverUrl ?? ""
             let token = sessionStore.token ?? ""
             let itemId = songId ?? ""
 
-            logger.info("[Lyrics] Fetching lyrics for '\(title)' by '\(artist)' (itemId=\(itemId), serverUrl=\(serverUrl.prefix(30))..., hasToken=\(!token.isEmpty))")
+            logger.info(
+                "[Lyrics] Fetching lyrics for '\(title)' by '\(artist)' (itemId=\(itemId), serverUrl=\(serverUrl.prefix(30))..., hasToken=\(!token.isEmpty))"
+            )
 
             let parsedLyrics = await getParsedLyrics(
                 serverUrl: serverUrl,
@@ -166,15 +172,21 @@ final class PlayerViewModel: @unchecked Sendable {
                 title: title
             )
 
-            logger.info("[Lyrics] Got ParsedLyrics from core: syncedLines=\(parsedLyrics.synced.count), plainLines=\(parsedLyrics.plain.count), areFromRemote=\(parsedLyrics.areFromRemote), hasSections=\(parsedLyrics.sections != nil), hasAgents=\(parsedLyrics.agents != nil), hasSongwriters=\(parsedLyrics.songwriters != nil), language=\(parsedLyrics.language ?? "nil")")
+            logger.info(
+                "[Lyrics] Got ParsedLyrics from core: syncedLines=\(parsedLyrics.synced.count), plainLines=\(parsedLyrics.plain.count), areFromRemote=\(parsedLyrics.areFromRemote), hasSections=\(parsedLyrics.sections != nil), hasAgents=\(parsedLyrics.agents != nil), hasSongwriters=\(parsedLyrics.songwriters != nil), language=\(parsedLyrics.language ?? "nil")"
+            )
 
             // Log first few synced lines for debugging
             for (i, line) in parsedLyrics.synced.prefix(5).enumerated() {
                 let wordCount = line.words?.count ?? 0
-                logger.info("[Lyrics] synced[\(i)]: timeMs=\(line.timeMs), endTimeMs=\(line.endTimeMs.map { String($0) } ?? "nil"), words=\(wordCount), agentId=\(line.agentId ?? "nil"), text='\(line.line.prefix(60))'")
+                logger.info(
+                    "[Lyrics] synced[\(i)]: timeMs=\(line.timeMs), endTimeMs=\(line.endTimeMs.map { String($0) } ?? "nil"), words=\(wordCount), agentId=\(line.agentId ?? "nil"), text='\(line.line.prefix(60))'"
+                )
                 if let words = line.words {
                     for (j, word) in words.prefix(3).enumerated() {
-                        logger.info("[Lyrics] word[\(j)]: timeMs=\(word.timeMs), endTimeMs=\(word.endTimeMs.map { String($0) } ?? "nil"), '\(word.word)'")
+                        logger.info(
+                            "[Lyrics] word[\(j)]: timeMs=\(word.timeMs), endTimeMs=\(word.endTimeMs.map { String($0) } ?? "nil"), '\(word.word)'"
+                        )
                     }
                     if words.count > 3 {
                         logger.info("[Lyrics] ... and \(words.count - 3) more words")
@@ -191,18 +203,21 @@ final class PlayerViewModel: @unchecked Sendable {
             let syncedCount = parsed.synced?.count ?? 0
             let hasPlain = parsed.plain != nil
             let hasWordSync = parsed.synced?.first?.words != nil
-            logger.info("[Lyrics] After LyricsParser: isValid=\(isValid), hasSynced=\(hasSynced), syncedCount=\(syncedCount), hasPlain=\(hasPlain), hasWordSync=\(hasWordSync)")
+            logger.info(
+                "[Lyrics] After LyricsParser: isValid=\(isValid), hasSynced=\(hasSynced), syncedCount=\(syncedCount), hasPlain=\(hasPlain), hasWordSync=\(hasWordSync)"
+            )
 
             if songId == currentSongId {
                 if isValid {
                     logger.info("[Lyrics] Setting lyrics on view model (valid)")
                     lyrics = parsed
                 } else {
-                    logger.warning("[Lyrics] Lyrics invalid, hiding lyrics panel")
-                    showLyrics = false
+                    lyricsUnavailable = true
                 }
             } else {
-                logger.info("[Lyrics] Song changed during fetch (was=\(songId ?? "nil"), now=\(self.currentSongId ?? "nil")), discarding result")
+                logger.info(
+                    "[Lyrics] Song changed during fetch (was=\(songId ?? "nil"), now=\(self.currentSongId ?? "nil")), discarding result"
+                )
             }
         }
     }
@@ -210,10 +225,12 @@ final class PlayerViewModel: @unchecked Sendable {
     // MARK: - Favorites
 
     func toggleFavorite() {
-        guard let songId = currentSongId else { return }
+        guard !isFavoriteLoading, let songId = currentSongId else { return }
         guard let serverUrl = sessionStore.serverUrl,
-              let token = sessionStore.token,
-              let userId = sessionStore.userId else { return }
+            let token = sessionStore.token,
+            let userId = sessionStore.userId
+        else { return }
+        let profilePath = sessionStore.getAppDataDir()
         let targetFavoriteState = !isFavorite
 
         isFavoriteLoading = true
@@ -228,8 +245,13 @@ final class PlayerViewModel: @unchecked Sendable {
                     isFavorite: targetFavoriteState
                 )
                 await MainActor.run {
+                    guard self.sessionStore.getAppDataDir() == profilePath else {
+                        self.isFavoriteLoading = false
+                        return
+                    }
                     self.favoriteCache[songId] = newState
-                    self.isFavorite = newState
+                    LibraryStore.shared.updateFavorite(songId: songId, isFavorite: newState)
+                    if self.currentSongId == songId { self.isFavorite = newState }
                     self.isFavoriteLoading = false
                 }
             } catch {

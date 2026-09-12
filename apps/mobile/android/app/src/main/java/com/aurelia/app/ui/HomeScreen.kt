@@ -229,15 +229,9 @@ internal fun HomeContent(
               HorizontalPager(state = pager, pageSpacing = 12.dp, key = { state.mixes[it].seedId }) { page ->
                 val mix = state.mixes[page]
                 FeaturedMixCard(
-                  title = mix.seedTitle,
-                  subtitle =
-                    mix.songs
-                      .flatMap { it.artists.orEmpty() }
-                      .distinct()
-                      .take(3)
-                      .joinToString(", "),
-                  artworkUrl = mix.artworkUrl,
-                  label = "Based on your listening",
+                  title = mix.title,
+                  subtitle = mix.artistNames.joinToString(", "),
+                  artworkUrls = mix.artworkUrls,
                   onClick = { onPlayMix(mix) },
                 )
               }
@@ -273,8 +267,7 @@ internal fun HomeContent(
               FeaturedMixCard(
                 title = "Your library, on shuffle",
                 subtitle = "Find your next favorite",
-                artworkUrl = fallbackAlbum?.albumArtUrl,
-                label = "From your collection",
+                artworkUrls = listOfNotNull(fallbackAlbum?.albumArtUrl),
                 onClick = onShuffleAll,
               )
             }
@@ -416,8 +409,7 @@ private fun FeaturedMixPlaceholder() {
 private fun FeaturedMixCard(
   title: String,
   subtitle: String,
-  artworkUrl: String?,
-  label: String,
+  artworkUrls: List<String>,
   onClick: () -> Unit,
 ) {
   val colors = MaterialTheme.colorScheme
@@ -427,15 +419,8 @@ private fun FeaturedMixCard(
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-      Artwork(
-        artworkUrl,
-        null,
-        Icons.Filled.AutoAwesome,
-        modifier = Modifier.size(80.dp).rotate(-7f),
-        shape = RoundedCornerShape(16.dp),
-      )
+      MixArtwork(artworkUrls)
       Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = colors.onSecondaryContainer.copy(alpha = 0.7f))
         Text(
           title,
           style = MaterialTheme.typography.titleMedium,
@@ -456,6 +441,32 @@ private fun FeaturedMixCard(
       }
       Box(Modifier.size(40.dp).background(colors.primary, CircleShape), contentAlignment = Alignment.Center) {
         Icon(Icons.Filled.PlayArrow, "Play $title", tint = colors.onPrimary, modifier = Modifier.size(22.dp))
+      }
+    }
+  }
+}
+
+@Composable
+private fun MixArtwork(artworkUrls: List<String>) {
+  val covers = artworkUrls.take(4)
+  Box(Modifier.size(80.dp).rotate(-7f).clip(RoundedCornerShape(16.dp))) {
+    if (covers.size <= 1) {
+      Artwork(covers.firstOrNull(), null, Icons.Filled.AutoAwesome, modifier = Modifier.fillMaxSize())
+    } else {
+      Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        covers.chunked((covers.size + 1) / 2).forEach { column ->
+          Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            column.forEach { url ->
+              Artwork(
+                url,
+                null,
+                Icons.Filled.Album,
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                shape = RoundedCornerShape(0.dp),
+              )
+            }
+          }
+        }
       }
     }
   }

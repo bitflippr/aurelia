@@ -8,12 +8,14 @@
 
 /* Begin PBXBuildFile section */
 		AB21E7542F2BFD0800DA2ECA /* AureliaCore in Frameworks */ = {isa = PBXBuildFile; productRef = AB21E7532F2BFD0800DA2ECA /* AureliaCore */; };
+		A11000000000000000000005 /* AureliaCore in Frameworks */ = {isa = PBXBuildFile; productRef = AB21E7532F2BFD0800DA2ECA; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		AB1C1E6D2F2BF9A000217004 /* Aurelia.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Aurelia.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AB1C1E6F2F2BF9A100217004 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AB21E7522F2BFCEB00DA2ECA /* AureliaCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = AureliaCore; sourceTree = "<group>"; };
+		A11000000000000000000001 /* AureliaTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = AureliaTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -22,6 +24,7 @@
 			path = Aurelia;
 			sourceTree = "<group>";
 		};
+		A11000000000000000000002 /* AureliaTests */ = {isa = PBXFileSystemSynchronizedRootGroup; path = AureliaTests; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -33,6 +36,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A11000000000000000000006 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A11000000000000000000005,); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -40,6 +44,7 @@
 			isa = PBXGroup;
 			children = (
 				AB1C1E6F2F2BF9A100217004 /* Info.plist */,
+                A11000000000000000000002 /* AureliaTests */,
 				AB1C1E6F2F2BF9A000217004 /* Aurelia */,
 				AB21E7512F2BFCEB00DA2ECA /* Frameworks */,
 				AB1C1E6E2F2BF9A000217004 /* Products */,
@@ -50,6 +55,7 @@
 			isa = PBXGroup;
 			children = (
 				AB1C1E6D2F2BF9A000217004 /* Aurelia.app */,
+                A11000000000000000000001 /* AureliaTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -89,7 +95,28 @@
 			productReference = AB1C1E6D2F2BF9A000217004 /* Aurelia.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A11000000000000000000009 /* AureliaTests */ = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = A1100000000000000000000A;
+            buildPhases = (A11000000000000000000007, A11000000000000000000006, A11000000000000000000008,);
+            buildRules = ();
+            dependencies = (A11000000000000000000004,);
+            fileSystemSynchronizedGroups = (A11000000000000000000002,);
+            name = AureliaTests;
+            packageProductDependencies = (AB21E7532F2BFD0800DA2ECA,);
+            productName = AureliaTests;
+            productReference = A11000000000000000000001;
+            productType = "com.apple.product-type.bundle.unit-test";
+        };
 /* End PBXNativeTarget section */
+
+/* Begin PBXContainerItemProxy section */
+		A11000000000000000000003 = {isa = PBXContainerItemProxy; containerPortal = AB1C1E652F2BF9A000217004; proxyType = 1; remoteGlobalIDString = AB1C1E6C2F2BF9A000217004; remoteInfo = Aurelia; };
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		A11000000000000000000004 = {isa = PBXTargetDependency; target = AB1C1E6C2F2BF9A000217004; targetProxy = A11000000000000000000003; };
+/* End PBXTargetDependency section */
 
 /* Begin PBXProject section */
 		AB1C1E652F2BF9A000217004 /* Project object */ = {
@@ -119,6 +146,7 @@
 			projectRoot = "";
 			targets = (
 				AB1C1E6C2F2BF9A000217004 /* Aurelia */,
+                A11000000000000000000009 /* AureliaTests */,
 			);
 		};
 /* End PBXProject section */
@@ -131,6 +159,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A11000000000000000000008 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -162,6 +191,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A11000000000000000000007 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
@@ -352,6 +382,8 @@
 			};
 			name = Release;
 		};
+		A1100000000000000000000B = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 18.0; PRODUCT_BUNDLE_IDENTIFIER = dev.skulldogged.AureliaTests; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Aurelia.app/Aurelia";}; name = Debug; };
+		A1100000000000000000000C = {isa = XCBuildConfiguration; buildSettings = {BUNDLE_LOADER = "$(TEST_HOST)"; GENERATE_INFOPLIST_FILE = YES; IPHONEOS_DEPLOYMENT_TARGET = 18.0; PRODUCT_BUNDLE_IDENTIFIER = dev.skulldogged.AureliaTests; PRODUCT_NAME = "$(TARGET_NAME)"; SDKROOT = iphoneos; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SWIFT_VERSION = 6.0; TARGETED_DEVICE_FAMILY = "1,2"; TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Aurelia.app/Aurelia";}; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -373,6 +405,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		A1100000000000000000000A = {isa = XCConfigurationList; buildConfigurations = (A1100000000000000000000B, A1100000000000000000000C,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */

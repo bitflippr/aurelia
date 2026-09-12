@@ -92,7 +92,7 @@ struct PlaylistDetailView: View {
     private var playlistSongs: some View {
         GlassCard(cornerRadius: AureliaRadius.l, padding: AureliaSpacing.m) {
             LazyVStack(spacing: 0) {
-                ForEach(Array(viewModel.detailSongs.enumerated()), id: \.element.id) { index, song in
+                ForEach(Array(viewModel.detailSongs.enumerated()), id: \.offset) { index, song in
                     SongRow(song: song, isPlaying: song.id == playerController.snapshot.currentSongId) {
                         viewModel.playPlaylist(startIndex: index, playerController: playerController)
                     }

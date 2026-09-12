@@ -2,6 +2,7 @@ import AureliaCore
 import SwiftUI
 
 struct ArtistsView: View {
+    var isEmbedded = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var artists: [(id: String, name: String, artUrl: String?, songCount: Int)] = []
     @State private var isLoading = false
@@ -12,7 +13,7 @@ struct ArtistsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        OptionalNavigationStack(embedded: isEmbedded) {
             let columns = [
                 GridItem(.adaptive(minimum: isWide ? 200 : 160), spacing: AureliaSpacing.m),
             ]
@@ -115,13 +116,15 @@ struct ArtistsView: View {
                 let songs = try loadCachedSongs(appDataDir: appDataDir)
                 var artistMap: [String: (name: String, artUrl: String?, count: Int)] = [:]
                 for song in songs {
-                    guard let artistId = song.artistIds?.first, !artistId.isEmpty else { continue }
-                    let name = song.artists?.first ?? "Unknown Artist"
-                    if var existing = artistMap[artistId] {
-                        existing.count += 1
-                        artistMap[artistId] = existing
-                    } else {
-                        artistMap[artistId] = (name: name, artUrl: nil, count: 1)
+                    var seen = Set<String>()
+                    for (artistId, name) in zip(song.artistIds ?? [], song.artists ?? []) {
+                        guard !artistId.isEmpty, !name.isEmpty, seen.insert(artistId).inserted else { continue }
+                        if var existing = artistMap[artistId] {
+                            existing.count += 1
+                            artistMap[artistId] = existing
+                        } else {
+                            artistMap[artistId] = (name: name, artUrl: song.albumArtUrl, count: 1)
+                        }
                     }
                 }
                 let sorted = artistMap.map { (id: $0.key, name: $0.value.name, artUrl: $0.value.artUrl, songCount: $0.value.count) }

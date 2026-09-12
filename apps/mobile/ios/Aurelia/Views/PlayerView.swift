@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 
 struct PlayerView: View {
-    enum Panel {
+    enum Panel: Hashable {
         case none
         case lyrics
         case queue
@@ -15,15 +15,21 @@ struct PlayerView: View {
         case vertical
     }
 
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var colorScheme
     @Environment(AudioPlayerController.self) private var playerController
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @AppStorage("animatedArtworkEnabled") private var animatedArtworkEnabled = true
+    @State private var animatedArtwork = AnimatedArtworkController()
     var onClose: (() -> Void)?
 
     @State private var viewModel = PlayerViewModel()
     @State private var isDragging = false
     @State private var dragPosition: Double = 0
     @State private var activePanel: Panel = .none
+    @State private var usesSplitLayout = false
     @State private var artSwipeOffset: CGFloat = 0
     @State private var artSwipeAxisLock: ArtSwipeAxisLock = .undecided
     var initialPanel: Panel = .none
@@ -33,94 +39,71 @@ struct PlayerView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let isWide = UIDevice.current.userInterfaceIdiom == .pad || AureliaLayout.isWide(geometry.size.width)
-            let horizontalInset: CGFloat = isWide ? AureliaSpacing.xxl : AureliaSpacing.m
+            let split = AureliaLayout.usesSplitPlayer(
+                width: geometry.size.width, height: geometry.size.height,
+                accessibilitySize: typeSize.isAccessibilitySize)
+            let horizontalInset: CGFloat = split ? 36 : 16
             let topSafeInset = max(geometry.safeAreaInsets.top, statusBarTopInset)
-            let panelVisible = activePanel != .none
-            let contentWidth = max(geometry.size.width - (horizontalInset * 2), 320)
-            let preferredPlayerWidth = min(CGFloat(520), contentWidth)
-            let hasSidePanelSpace = isWide && contentWidth >= (preferredPlayerWidth + 280 + AureliaSpacing.xl)
-            let panelWidth: CGFloat = hasSidePanelSpace
-                ? min(CGFloat(360), max(CGFloat(280), contentWidth - preferredPlayerWidth - AureliaSpacing.xl))
-                : 0
-            let playerWidth = preferredPlayerWidth
-            let baseArtSize = min(
-                isWide ? 300 : 260,
-                max(170, playerWidth - 120)
-            )
-            let compactTopBarReservedHeight = topSafeInset + 36 + (AureliaSpacing.s * 2)
-            let contentTopPadding: CGFloat = isWide ? 58 : compactTopBarReservedHeight
-            let bottomContentPadding = max(geometry.safeAreaInsets.bottom + AureliaSpacing.s, AureliaSpacing.l)
-            let centeredContentHeight = max(0, geometry.size.height - contentTopPadding - bottomContentPadding)
+            let contentTopPadding = topSafeInset + (split ? 36 : 64)
+            let bottomPadding = max(geometry.safeAreaInsets.bottom + 12, 24)
+            let contentHeight = max(0, geometry.size.height - contentTopPadding - bottomPadding)
+            let width = max(geometry.size.width - horizontalInset * 2, 240)
 
             ZStack {
                 PlayerBackgroundVisualizer(isPlaying: viewModel.isPlaying)
-
-                Group {
-                    if hasSidePanelSpace {
-                        HStack(alignment: .center, spacing: AureliaSpacing.xl) {
-                            primaryColumn(artSize: baseArtSize)
-                                .frame(width: playerWidth)
-
-                            if panelVisible {
-                                panelView
-                                    .frame(width: panelWidth, height: centeredContentHeight, alignment: .top)
-                                    .transition(.asymmetric(
-                                        insertion: .opacity.animation(.easeOut(duration: 0.2).delay(0.12)),
-                                        removal: .opacity.animation(.easeOut(duration: 0.2))
-                                    ))
-                            }
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: panelVisible ? .center : .center)
+                if split {
+                    splitPlayerLayout(width: width, height: contentHeight)
                         .padding(.horizontal, horizontalInset)
                         .padding(.top, contentTopPadding)
-                        .padding(.bottom, bottomContentPadding)
-                    } else if isWide {
-                        VStack {
-                            adaptivePrimaryColumn(
-                                artSizes: [
-                                    baseArtSize,
-                                    max(170, baseArtSize - 30),
-                                    max(150, baseArtSize - 55),
-                                ],
-                                playerWidth: playerWidth
-                            )
-
-                            if panelVisible {
-                                panelView
-                                    .frame(maxHeight: 420)
-                                    .transition(.asymmetric(
-                                        insertion: .opacity.animation(.easeOut(duration: 0.2).delay(0.12)),
-                                        removal: .opacity.animation(.easeOut(duration: 0.2))
-                                    ))
-                            }
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: centeredContentHeight, alignment: .center)
-                        .padding(.horizontal, horizontalInset)
-                        .padding(.top, contentTopPadding)
-                        .padding(.bottom, bottomContentPadding)
-                    } else {
-                        compactPlayerLayout(
-                            playerWidth: playerWidth,
-                            horizontalInset: horizontalInset,
-                            contentTopPadding: contentTopPadding,
-                            bottomPadding: bottomContentPadding,
-                            centeredContentHeight: centeredContentHeight
-                        )
-                    }
+                        .padding(.bottom, bottomPadding)
+                } else {
+                    compactPlayerLayout(
+                        playerWidth: min(width, 500), horizontalInset: horizontalInset,
+                        contentTopPadding: contentTopPadding, bottomPadding: bottomPadding,
+                        centeredContentHeight: contentHeight)
                 }
             }
+            .onAppear { updateLayout(split: split) }
+            .onChange(of: split) { _, value in updateLayout(split: value) }
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: .center)
             .background {
-                PlayerBackdropView(albumArtUrl: viewModel.albumArtUrl)
+                PlayerArtworkBackdrop(
+                    albumArtUrl: viewModel.albumArtUrl, videoFrame: animatedArtwork.backdrop,
+                    isPlaying: viewModel.isPlaying && scenePhase == .active && !reduceMotion)
             }
             .overlay(alignment: .top) {
                 topBar(topSafeInset: topSafeInset)
             }
         }
+        .preferredColorScheme(.dark)
+        .task(
+            id: "\(viewModel.currentAlbumId ?? viewModel.currentSongId ?? "")-\(animatedArtworkEnabled)-\(reduceMotion)"
+        ) {
+            guard animatedArtworkEnabled, !reduceMotion else {
+                animatedArtwork.stop()
+                return
+            }
+            await animatedArtwork.load(itemId: viewModel.currentSongId)
+            animatedArtwork.setPlaying(viewModel.isPlaying && scenePhase == .active)
+        }
+        .task(id: viewModel.isPlaying && scenePhase == .active && animatedArtworkEnabled && !reduceMotion) {
+            let playing = viewModel.isPlaying && scenePhase == .active && animatedArtworkEnabled && !reduceMotion
+            animatedArtwork.setPlaying(playing)
+            guard playing else { return }
+            while !Task.isCancelled {
+                animatedArtwork.updateBackdrop()
+                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            }
+        }
+        .onDisappear { animatedArtwork.stop() }
+        .onReceive(LibraryStore.shared.$snapshot) { _ in
+            viewModel.updateFrom(
+                playerController.snapshot, position: playerController.playbackPosition,
+                playerController: playerController)
+        }
         .onChange(of: playerController.snapshot) { _, snapshot in
-            viewModel.updateFrom(snapshot, position: playerController.playbackPosition, playerController: playerController)
+            viewModel.updateFrom(
+                snapshot, position: playerController.playbackPosition, playerController: playerController)
         }
         .onChange(of: playerController.playbackPosition) { _, position in
             viewModel.updateFrom(playerController.snapshot, position: position, playerController: playerController)
@@ -133,7 +116,9 @@ struct PlayerView: View {
             }
         }
         .onAppear {
-            viewModel.updateFrom(playerController.snapshot, position: playerController.playbackPosition, playerController: playerController)
+            viewModel.updateFrom(
+                playerController.snapshot, position: playerController.playbackPosition,
+                playerController: playerController)
             if initialPanel != .none {
                 withAnimation(.easeInOut(duration: 0.35)) {
                     activePanel = initialPanel
@@ -145,19 +130,80 @@ struct PlayerView: View {
         }
     }
 
-    private func adaptivePrimaryColumn(artSizes: [CGFloat], playerWidth: CGFloat) -> some View {
-        ViewThatFits(in: .vertical) {
-            ForEach(Array(artSizes.enumerated()), id: \.offset) { _, artSize in
-                primaryColumn(artSize: artSize)
-                    .frame(maxWidth: playerWidth)
-            }
+    private func updateLayout(split: Bool) {
+        usesSplitLayout = split
+    }
 
+    private func selectPanel(_ panel: Panel) {
+        withAnimation(.easeInOut(duration: 0.35)) {
+            activePanel = panel
+        }
+        if panel == .lyrics, !viewModel.showLyrics { viewModel.toggleLyrics() }
+        if panel != .lyrics, viewModel.showLyrics { viewModel.toggleLyrics() }
+    }
+
+    private func splitPlayerLayout(width: CGFloat, height: CGFloat) -> some View {
+        let leftWidth = activePanel == .none ? min(500, width) : min(500, (width - 64) * 0.43)
+        let artSize = min(leftWidth, max(180, height - 260))
+        return HStack(alignment: .center, spacing: 64) {
             ScrollView(showsIndicators: false) {
-                primaryColumn(artSize: artSizes.last ?? 170)
-                    .frame(maxWidth: playerWidth)
-                    .padding(.vertical, AureliaSpacing.s)
+                VStack(spacing: 16) {
+                    artworkHero(artSize: artSize)
+                    HStack(alignment: .center, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(viewModel.title).font(.title2.weight(.semibold)).lineLimit(2)
+                            Text(viewModel.artist).font(.title3).foregroundStyle(.white.opacity(0.70)).lineLimit(2)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        Button("Favorite", systemImage: viewModel.isFavorite ? "heart.fill" : "heart") {
+                            viewModel.toggleFavorite()
+                        }
+                        .labelStyle(.iconOnly).frame(width: 44, height: 44)
+                        .foregroundStyle(.white).buttonStyle(.plain)
+                        .disabled(viewModel.isFavoriteLoading)
+                        if viewModel.queue.indices.contains(viewModel.currentQueueIndex) {
+                            Image(systemName: "ellipsis")
+                                .font(.title3.weight(.semibold))
+                                .frame(width: 44, height: 44)
+                                .songActions(viewModel.queue[viewModel.currentQueueIndex], menu: true)
+                                .accessibilityLabel("Song actions")
+                        }
+                    }
+                    progressSection
+                    playbackControls
+                    HStack(spacing: 12) {
+                        panelChip(
+                            icon: "quote.bubble", title: "Lyrics", isActive: activePanel == .lyrics,
+                            action: toggleLyricsPanel)
+                        panelChip(
+                            icon: "list.bullet", title: "Queue", isActive: activePanel == .queue,
+                            isEnabled: !viewModel.queue.isEmpty, action: toggleQueuePanel)
+                        AudioRoutePicker().frame(width: 44, height: 44).colorScheme(.dark)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 8)
+                .frame(minHeight: height)
+            }.frame(width: leftWidth)
+            if activePanel != .none {
+                VStack(spacing: 22) {
+                    HStack {
+                        Spacer()
+                        Button {
+                            selectPanel(.none)
+                        } label: {
+                            Image(systemName: "xmark")
+                                .frame(width: 44, height: 44)
+                        }
+                        .aureliaGlassButton()
+                        .accessibilityLabel("Close player panel")
+                    }
+                    if activePanel == .lyrics { lyricsCard } else { queueCard }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .frame(maxWidth: .infinity)
+        .frame(height: height)
     }
 
     private func compactPlayerLayout(
@@ -216,22 +262,26 @@ struct PlayerView: View {
         )
     }
 
-    private func primaryColumn(artSize: CGFloat) -> some View {
-        VStack(spacing: AureliaSpacing.l) {
-            artworkHero(artSize: artSize)
-            controlsColumn(horizontalPadding: AureliaSpacing.l)
-        }
-    }
-
     private func artworkHero(artSize: CGFloat) -> some View {
-        AlbumArtView(url: viewModel.albumArtUrl, size: .extraLarge, customDimension: artSize)
-            .offset(x: artSwipeOffset)
-            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.36 : 0.16), radius: 18, x: 0, y: 10)
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.18 : 0.30), lineWidth: 1)
-            )
-            .highPriorityGesture(albumArtSwipeGesture)
+        let cornerRadius: CGFloat = 16
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        return ZStack {
+            AlbumArtView(
+                url: viewModel.albumArtUrl, size: .extraLarge, customDimension: artSize,
+                cornerRadius: cornerRadius, showsBorder: false)
+            ArtworkVideoView(player: animatedArtwork.player)
+                .frame(width: artSize, height: artSize)
+                .opacity(animatedArtwork.ready ? 1 : 0)
+                .allowsHitTesting(false)
+        }
+        .frame(width: artSize, height: artSize)
+        .clipShape(shape)
+        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.36 : 0.16), radius: 18, x: 0, y: 10)
+        .overlay(
+            shape.strokeBorder(Color.white.opacity(colorScheme == .dark ? 0.18 : 0.30), lineWidth: 1)
+        )
+        .offset(x: artSwipeOffset)
+        .highPriorityGesture(albumArtSwipeGesture)
     }
 
     private func controlsColumn(horizontalPadding: CGFloat) -> some View {
@@ -290,7 +340,7 @@ struct PlayerView: View {
                         isDragging = true
                     }
                 ),
-                in: 0 ... max(Double(viewModel.durationMs), 1),
+                in: 0...max(Double(viewModel.durationMs), 1),
                 onEditingChanged: { editing in
                     if !editing {
                         viewModel.seekTo(Int64(dragPosition), playerController: playerController)
@@ -317,12 +367,14 @@ struct PlayerView: View {
     }
 
     private var playbackControls: some View {
-        HStack(spacing: 28) {
+        HStack(spacing: usesSplitLayout ? 0 : 8) {
             iconControl(
                 systemName: "shuffle",
                 isActive: viewModel.isShuffled,
                 action: { viewModel.toggleShuffle(playerController: playerController) }
             )
+
+            if usesSplitLayout { Spacer(minLength: 0) }
 
             iconControl(
                 systemName: "backward.fill",
@@ -330,15 +382,17 @@ struct PlayerView: View {
                 action: { viewModel.skipPrevious(playerController: playerController) }
             )
 
-            Button {
-                viewModel.togglePlayPause(playerController: playerController)
-            } label: {
-                Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 34, weight: .bold))
-                    .frame(width: 68, height: 68)
-                    .foregroundStyle(.white)
+            if usesSplitLayout { Spacer(minLength: 0) }
+
+            if usesSplitLayout {
+                playPauseButton.buttonStyle(.plain)
+            } else {
+                playPauseButton
+                    .aureliaGlassButton(prominent: true)
+                    .buttonBorderShape(.circle)
             }
-            .buttonStyle(.plain)
+
+            if usesSplitLayout { Spacer(minLength: 0) }
 
             iconControl(
                 systemName: "forward.fill",
@@ -346,12 +400,27 @@ struct PlayerView: View {
                 action: { viewModel.skipNext(playerController: playerController) }
             )
 
+            if usesSplitLayout { Spacer(minLength: 0) }
+
             iconControl(
                 systemName: viewModel.repeatMode == .one ? "repeat.1" : "repeat",
                 isActive: viewModel.repeatMode != .none,
                 action: { viewModel.cycleRepeatMode(playerController: playerController) }
             )
         }
+    }
+
+    private var playPauseButton: some View {
+        Button {
+            viewModel.togglePlayPause(playerController: playerController)
+        } label: {
+            Image(systemName: viewModel.isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: usesSplitLayout ? 40 : 34, weight: .bold))
+                .frame(width: 68, height: 68)
+                .foregroundStyle(.white)
+                .contentShape(Rectangle())
+        }
+        .accessibilityLabel(viewModel.isPlaying ? "Pause" : "Play")
     }
 
     private var secondaryControls: some View {
@@ -375,7 +444,7 @@ struct PlayerView: View {
                 icon: viewModel.isFavorite ? "heart.fill" : "heart",
                 title: "Favorite",
                 isActive: viewModel.isFavorite,
-                tint: viewModel.isFavorite ? .red : .white,
+                tint: viewModel.isFavorite ? AureliaPalette.tint(for: colorScheme) : .white,
                 isEnabled: !viewModel.isFavoriteLoading,
                 action: { viewModel.toggleFavorite() }
             )
@@ -385,7 +454,11 @@ struct PlayerView: View {
 
     private var lyricsCard: some View {
         VStack(alignment: .leading, spacing: AureliaSpacing.s) {
-            if let lyrics = viewModel.lyrics {
+            if viewModel.lyricsUnavailable {
+                ContentUnavailableView(
+                    "No lyrics available", systemImage: "quote.bubble",
+                    description: Text("Keep listening, or open the queue."))
+            } else if let lyrics = viewModel.lyrics {
                 LyricsView(
                     lyrics: lyrics,
                     positionMs: viewModel.positionMs,
@@ -393,7 +466,8 @@ struct PlayerView: View {
                     updateTimeMs: viewModel.positionUpdateTimeMs,
                     onSeekToMs: { targetMs in
                         viewModel.seekTo(targetMs, playerController: playerController)
-                    }
+                    },
+                    usesExpandedLayout: usesSplitLayout
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
@@ -417,7 +491,7 @@ struct PlayerView: View {
 
             ScrollView(showsIndicators: false) {
                 LazyVStack(spacing: 2) {
-                    ForEach(Array(viewModel.queue.enumerated()), id: \.element.id) { index, song in
+                    ForEach(Array(viewModel.queue.enumerated()), id: \.offset) { index, song in
                         queueRow(song: song, index: index)
                     }
                 }
@@ -427,37 +501,64 @@ struct PlayerView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    @ViewBuilder
     private func topBar(topSafeInset: CGFloat) -> some View {
-        HStack(spacing: AureliaSpacing.s) {
+        if usesSplitLayout {
             Button {
-                if let onClose {
-                    onClose()
-                } else {
-                    dismiss()
-                }
+                if let onClose { onClose() } else { dismiss() }
             } label: {
-                Image(systemName: "chevron.down")
-                    .font(.headline.weight(.semibold))
-                    .frame(width: 36, height: 36)
-                    .foregroundStyle(.white)
-                    .background(.ultraThinMaterial, in: Circle())
+                Capsule()
+                    .fill(.white.opacity(0.5))
+                    .frame(width: 60, height: 5)
+                    .frame(width: 100, height: 32)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Close player")
+            .frame(maxWidth: .infinity)
+            .padding(.top, topSafeInset)
+        } else {
+            HStack(spacing: AureliaSpacing.s) {
+                Button {
+                    if let onClose {
+                        onClose()
+                    } else {
+                        dismiss()
+                    }
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.headline.weight(.semibold))
+                        .frame(width: 44, height: 44)
+                        .foregroundStyle(.white)
+                        .aureliaGlass(in: Circle(), interactive: true)
+                }
+                .buttonStyle(.plain)
 
-            Spacer()
+                Spacer()
+                Text("Now Playing").font(.subheadline.weight(.semibold)).foregroundStyle(.white.opacity(0.8))
+                Spacer()
 
-            Color.clear.frame(width: 36, height: 36)
-        }
-        .padding(.horizontal, AureliaSpacing.m)
-        .padding(.top, topSafeInset + AureliaSpacing.s)
-        .padding(.bottom, AureliaSpacing.s)
-        .background(
-            LinearGradient(
-                colors: [Color.black.opacity(0.24), Color.black.opacity(0)],
-                startPoint: .top,
-                endPoint: .bottom
+                if viewModel.queue.indices.contains(viewModel.currentQueueIndex) {
+                    let song = viewModel.queue[viewModel.currentQueueIndex]
+                    Image(systemName: "ellipsis")
+                        .font(.headline).foregroundStyle(.white)
+                        .frame(width: 44, height: 44)
+                        .aureliaGlass(in: Circle(), interactive: true)
+                        .songActions(song, menu: true)
+                        .accessibilityLabel("Song actions")
+                }
+            }
+            .padding(.horizontal, AureliaSpacing.m)
+            .padding(.top, topSafeInset + AureliaSpacing.s)
+            .padding(.bottom, AureliaSpacing.s)
+            .background(
+                LinearGradient(
+                    colors: [Color.black.opacity(0.24), Color.black.opacity(0)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
             )
-        )
+        }
     }
 
     private var statusBarTopInset: CGFloat {
@@ -476,9 +577,14 @@ struct PlayerView: View {
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 23, weight: .semibold))
+                .font(
+                    .system(
+                        size: usesSplitLayout && ["backward.fill", "forward.fill"].contains(systemName) ? 30 : 23,
+                        weight: .semibold)
+                )
                 .foregroundStyle(isActive ? .white : .white.opacity(0.84))
                 .opacity(isEnabled ? 1 : 0.4)
+                .frame(minWidth: 44, minHeight: 44)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -498,11 +604,8 @@ struct PlayerView: View {
                 .foregroundStyle(tint.opacity(isEnabled ? 1 : 0.5))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(isActive ? Color.white.opacity(0.18) : Color.white.opacity(0.08), in: Capsule())
-                .overlay(
-                    Capsule()
-                        .stroke(Color.white.opacity(0.22), lineWidth: 1)
-                )
+                .frame(minHeight: 28)
+                .aureliaGlass(in: Capsule(), interactive: true)
         }
         .buttonStyle(.plain)
         .disabled(!isEnabled)
@@ -598,7 +701,7 @@ struct PlayerView: View {
     private var albumArtSwipeGesture: some Gesture {
         DragGesture(minimumDistance: 8)
             .onChanged { value in
-                guard activePanel == .none else { return }
+                guard activePanel == .none || usesSplitLayout else { return }
                 if artSwipeAxisLock == .undecided {
                     let horizontal = abs(value.translation.width)
                     let vertical = abs(value.translation.height)
@@ -620,10 +723,11 @@ struct PlayerView: View {
                     artSwipeAxisLock = .undecided
                 }
 
-                guard activePanel == .none, artSwipeAxisLock == .horizontal else { return }
+                guard activePanel == .none || usesSplitLayout, artSwipeAxisLock == .horizontal else { return }
 
                 let projected = value.predictedEndTranslation.width
-                let triggerDistance = abs(projected) > abs(value.translation.width) ? projected : value.translation.width
+                let triggerDistance =
+                    abs(projected) > abs(value.translation.width) ? projected : value.translation.width
 
                 if triggerDistance <= -artSwipeThreshold, viewModel.hasNext {
                     viewModel.skipNext(playerController: playerController)
@@ -641,7 +745,8 @@ private struct PlayerBackgroundVisualizer: View {
 
     var body: some View {
         let visualizerState = playerController.visualizerState
-        let shouldShow = visualizerState.enabled
+        let shouldShow =
+            visualizerState.enabled
             && isPlaying
             && !visualizerState.frequencyData.isEmpty
 
@@ -706,7 +811,7 @@ struct AudioVisualizerCanvas: View {
             endPoint: CGPoint(x: 0, y: size.height)
         )
 
-        for i in 0 ..< barCount {
+        for i in 0..<barCount {
             let dataIndex = min(dataCount - 1, Int(CGFloat(i) * dataStep))
             let value = CGFloat(Int(frequencyData[dataIndex]))
             let barHeight = min(value * heightScale, size.height)
@@ -732,7 +837,7 @@ struct AudioVisualizerCanvas: View {
         var crestPoints: [CGPoint] = []
         crestPoints.reserveCapacity(sampleCount)
 
-        for i in 0 ..< sampleCount {
+        for i in 0..<sampleCount {
             let dataIndex = min(dataCount - 1, Int(CGFloat(i) * dataStep))
             let value = CGFloat(Int(frequencyData[dataIndex]))
             let amplitude = min(value * heightScale, size.height)
@@ -744,7 +849,7 @@ struct AudioVisualizerCanvas: View {
         var fillPath = Path()
         fillPath.move(to: CGPoint(x: 0, y: size.height))
         fillPath.addLine(to: crestPoints[0])
-        for i in 0 ..< (crestPoints.count - 1) {
+        for i in 0..<(crestPoints.count - 1) {
             let current = crestPoints[i]
             let next = crestPoints[i + 1]
             fillPath.addQuadCurve(
@@ -770,7 +875,7 @@ struct AudioVisualizerCanvas: View {
 
         var strokePath = Path()
         strokePath.move(to: crestPoints[0])
-        for i in 0 ..< (crestPoints.count - 1) {
+        for i in 0..<(crestPoints.count - 1) {
             let current = crestPoints[i]
             let next = crestPoints[i + 1]
             strokePath.addQuadCurve(
@@ -797,7 +902,7 @@ struct AudioVisualizerCanvas: View {
         var path = Path()
         var x: CGFloat = 0
 
-        for i in 0 ..< dataCount {
+        for i in 0..<dataCount {
             let deviation = (CGFloat(Int(waveformData[i])) - 128) * boost
             let y = centerY - (deviation / 128) * centerY
             let point = CGPoint(x: x, y: y)
@@ -817,53 +922,21 @@ struct AudioVisualizerCanvas: View {
     }
 }
 
-private struct PlayerBackdropView: View {
-    @Environment(\.colorScheme) private var colorScheme
-    let albumArtUrl: String?
-
-    var body: some View {
-        ZStack {
-            LinearGradient(
-                colors: colorScheme == .dark
-                    ? [Color(red: 0.10, green: 0.10, blue: 0.12), Color(red: 0.04, green: 0.04, blue: 0.05)]
-                    : [Color(red: 0.93, green: 0.94, blue: 0.96), Color(red: 0.84, green: 0.86, blue: 0.90)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            if let albumArtUrl, let url = URL(string: albumArtUrl) {
-                CachedImageView(
-                    url: url,
-                    contentMode: .fill,
-                    placeholderColor: .clear,
-                    targetSize: CGSize(width: 1200, height: 1200)
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .blur(radius: 48)
-                .saturation(colorScheme == .dark ? 0.95 : 0.72)
-                .scaleEffect(1.14)
-                .opacity(colorScheme == .dark ? 0.32 : 0.40)
-                .mask(Rectangle())
-            }
-
-            LinearGradient(
-                colors: [Color.black.opacity(0.14), Color.black.opacity(colorScheme == .dark ? 0.48 : 0.24)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
-        }
-    }
-}
-
 struct LyricsView: View {
     let lyrics: Lyrics
     let positionMs: Int64
     let isPlaying: Bool
     let updateTimeMs: Int64
     var onSeekToMs: ((Int64) -> Void)?
+    var usesExpandedLayout = false
     @State private var lastCenteredIndex: Int?
+
+    private var lyricFont: Font {
+        .system(
+            size: usesExpandedLayout ? 42 : 25,
+            weight: usesExpandedLayout ? .bold : .semibold,
+            design: usesExpandedLayout ? .default : .rounded)
+    }
 
     /// Whether these lyrics contain any word-level sync data.
     private var hasWordSync: Bool {
@@ -885,8 +958,10 @@ struct LyricsView: View {
         } else if let plain = lyrics.plain, !plain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             plainLyricsView(plain)
         } else {
-            ContentUnavailableView("No Lyrics", systemImage: "quote.bubble", description: Text("No lyrics were found for this track."))
-                .foregroundStyle(.white.opacity(0.78))
+            ContentUnavailableView(
+                "No Lyrics", systemImage: "quote.bubble", description: Text("No lyrics were found for this track.")
+            )
+            .foregroundStyle(.white.opacity(0.78))
         }
     }
 
@@ -977,9 +1052,12 @@ struct LyricsView: View {
     }
 
     /// Compute the progress (0...1) through a specific word for the gradient fill.
-    private func wordProgress(word: SyncedWord, nextWord: SyncedWord?, lineEndTime: TimeInterval?, currentPositionMs: Int64) -> Double {
+    private func wordProgress(
+        word: SyncedWord, nextWord: SyncedWord?, lineEndTime: TimeInterval?, currentPositionMs: Int64
+    ) -> Double {
         let currentTime = Double(currentPositionMs) / 1000.0
-        let endTime = word.endTime
+        let endTime =
+            word.endTime
             ?? nextWord?.time
             ?? lineEndTime
             ?? (word.time + 0.5)
@@ -994,74 +1072,82 @@ struct LyricsView: View {
     private func syncedLyricsView(_ synced: [SyncedLine], currentPositionMs: Int64) -> some View {
         let labels = sectionLabels
         let activeIdx = activeLineIndex(in: synced, currentPositionMs: currentPositionMs)
-        return ScrollViewReader { proxy in
-            ScrollView(showsIndicators: false) {
-                LazyVStack(spacing: 10) {
-                    Color.clear.frame(height: 120)
+        return GeometryReader { geometry in
+            ScrollViewReader { proxy in
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: usesExpandedLayout ? 28 : 10) {
+                        Color.clear.frame(height: usesExpandedLayout ? geometry.size.height / 2 : 120)
 
-                    ForEach(Array(synced.enumerated()), id: \.offset) { index, line in
-                        if let label = labels[line.time] {
-                            Text(label.uppercased())
-                                .font(.caption2)
-                                .fontWeight(.semibold)
-                                .tracking(1.5)
-                                .foregroundStyle(.white.opacity(0.30))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.top, index == 0 ? 0 : 8)
+                        ForEach(Array(synced.enumerated()), id: \.offset) { index, line in
+                            if let label = labels[line.time] {
+                                Text(label.uppercased())
+                                    .font(.caption2)
+                                    .fontWeight(.semibold)
+                                    .tracking(1.5)
+                                    .foregroundStyle(.white.opacity(0.30))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.top, index == 0 ? 0 : 8)
+                            }
+
+                            Button {
+                                let targetMs = Int64((line.time * 1000.0).rounded())
+                                onSeekToMs?(targetMs)
+                                lastCenteredIndex = index
+                                withAnimation(.easeInOut(duration: 0.22)) {
+                                    proxy.scrollTo(index, anchor: .center)
+                                }
+                            } label: {
+                                let state = lineState(for: index, activeIdx: activeIdx)
+                                let isBackground = lyrics.isBackgroundVocal(line.agentId)
+                                let isSecondary = lyrics.isSecondaryVocalist(line.agentId)
+                                let isWordSynced = line.words?.isEmpty == false
+
+                                if isWordSynced {
+                                    wordSyncedLine(
+                                        line: line,
+                                        state: state,
+                                        isBackground: isBackground,
+                                        isSecondary: isSecondary,
+                                        currentPositionMs: currentPositionMs
+                                    )
+                                    .contentShape(Rectangle())
+                                } else {
+                                    lyricLineWithTranslation(
+                                        line: line,
+                                        isActive: state == .active,
+                                        isBackground: isBackground,
+                                        isSecondary: isSecondary
+                                    )
+                                    .contentShape(Rectangle())
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .blur(radius: usesExpandedLayout && index != activeIdx ? 3 : 0)
+                            .animation(.easeInOut(duration: 0.35), value: index == activeIdx)
+                            .id(index)
                         }
 
-                        Button {
-                            let targetMs = Int64((line.time * 1000.0).rounded())
-                            onSeekToMs?(targetMs)
-                            lastCenteredIndex = index
-                            withAnimation(.easeInOut(duration: 0.22)) {
-                                proxy.scrollTo(index, anchor: .center)
-                            }
-                        } label: {
-                            let state = lineState(for: index, activeIdx: activeIdx)
-                            let isBackground = lyrics.isBackgroundVocal(line.agentId)
-                            let isSecondary = lyrics.isSecondaryVocalist(line.agentId)
-                            let isWordSynced = line.words?.isEmpty == false
-
-                            if isWordSynced {
-                                wordSyncedLine(
-                                    line: line,
-                                    state: state,
-                                    isBackground: isBackground,
-                                    isSecondary: isSecondary,
-                                    currentPositionMs: currentPositionMs
-                                )
-                                .contentShape(Rectangle())
-                            } else {
-                                lyricLineWithTranslation(
-                                    line: line,
-                                    isActive: state == .active,
-                                    isBackground: isBackground,
-                                    isSecondary: isSecondary
-                                )
-                                .contentShape(Rectangle())
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .id(index)
+                        Color.clear.frame(height: usesExpandedLayout ? geometry.size.height / 2 : 140)
                     }
-
-                    Color.clear.frame(height: 140)
+                    .padding(.horizontal, AureliaSpacing.m)
                 }
-                .padding(.horizontal, AureliaSpacing.m)
-            }
-            .mask(
-                LinearGradient(
-                    colors: [.clear, .black, .black, .clear],
-                    startPoint: .top,
-                    endPoint: .bottom
+                .mask(
+                    LinearGradient(
+                        colors: [.clear, .black, .black, .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                 )
-            )
-            .onAppear {
-                centerActiveLine(in: synced, proxy: proxy, currentPositionMs: currentPositionMs, animated: false)
-            }
-            .onChange(of: activeLineIndex(in: synced, currentPositionMs: currentPositionMs)) { _, _ in
-                centerActiveLine(in: synced, proxy: proxy, currentPositionMs: currentPositionMs, animated: true)
+                .onAppear {
+                    centerActiveLine(in: synced, proxy: proxy, currentPositionMs: currentPositionMs, animated: false)
+                }
+                .onChange(of: activeLineIndex(in: synced, currentPositionMs: currentPositionMs)) { _, _ in
+                    centerActiveLine(in: synced, proxy: proxy, currentPositionMs: currentPositionMs, animated: true)
+                }
+                .onChange(of: geometry.size) { _, _ in
+                    lastCenteredIndex = nil
+                    centerActiveLine(in: synced, proxy: proxy, currentPositionMs: currentPositionMs, animated: false)
+                }
             }
         }
     }
@@ -1080,7 +1166,9 @@ struct LyricsView: View {
     /// - **inactive**: not the current line — uniform dim opacity, no glow.
     ///   Like Apple Music, when a new line starts the previous line dims
     ///   immediately with no lingering highlight.
-    private func wordSyncedLine(line: SyncedLine, state: LineState, isBackground: Bool, isSecondary: Bool, currentPositionMs: Int64) -> some View {
+    private func wordSyncedLine(
+        line: SyncedLine, state: LineState, isBackground: Bool, isSecondary: Bool, currentPositionMs: Int64
+    ) -> some View {
         let words = line.words ?? []
         let isActive = state == .active
         let activeWord = isActive ? activeWordIndex(in: line, currentPositionMs: currentPositionMs) : nil
@@ -1089,11 +1177,12 @@ struct LyricsView: View {
         let inactiveOpacity: Double = isBackground ? 0.25 : 0.50
 
         // Glow: active lines glow proportionally to progress.
-        let glowRadius: CGFloat = if let aw = activeWord, isActive, !words.isEmpty {
-            CGFloat(6.0 * Double(aw + 1) / Double(words.count))
-        } else {
-            0
-        }
+        let glowRadius: CGFloat =
+            if let aw = activeWord, isActive, !words.isEmpty {
+                CGFloat(6.0 * Double(aw + 1) / Double(words.count))
+            } else {
+                0
+            }
 
         // Precompute which words have a leading space (inter-word gap from TTML/LRC).
         // We strip it from the display text and let the layout handle spacing,
@@ -1115,7 +1204,7 @@ struct LyricsView: View {
         let scaleAnchor: UnitPoint = isSecondary ? .trailing : .leading
 
         return VStack(alignment: alignment, spacing: 4) {
-            WordFlowLayout(alignTrailing: isSecondary) {
+            WordFlowLayout(alignTrailing: isSecondary, spaceWidth: usesExpandedLayout ? 11 : 7.5) {
                 ForEach(Array(words.enumerated()), id: \.offset) { wIdx, word in
                     let entry = wordEntries[wIdx]
 
@@ -1135,7 +1224,9 @@ struct LyricsView: View {
                             return [.init(color: .white, location: 0)]
                         }
                         let nextWord = wIdx + 1 < words.count ? words[wIdx + 1] : nil
-                        let progress = wordProgress(word: word, nextWord: nextWord, lineEndTime: line.endTime, currentPositionMs: currentPositionMs)
+                        let progress = wordProgress(
+                            word: word, nextWord: nextWord, lineEndTime: line.endTime,
+                            currentPositionMs: currentPositionMs)
                         return [
                             .init(color: .white, location: max(0, progress - 0.01)),
                             .init(color: .white.opacity(dimRatio), location: min(1, progress + 0.01)),
@@ -1161,7 +1252,7 @@ struct LyricsView: View {
                         .animation(isSweepWord ? nil : .easeOut(duration: 0.35), value: state)
                 }
             }
-            .font(.system(size: 25, weight: .semibold, design: .rounded))
+            .font(lyricFont)
             .italic(isBackground)
             .shadow(color: .white.opacity(isActive ? 0.45 : 0), radius: glowRadius, x: 0, y: 0)
             .frame(maxWidth: .infinity, alignment: frameAlignment)
@@ -1188,7 +1279,7 @@ struct LyricsView: View {
     private func plainLyricsView(_ plain: String) -> some View {
         ScrollView(showsIndicators: false) {
             Text(plain)
-                .font(.body)
+                .font(usesExpandedLayout ? .title2 : .body)
                 .lineSpacing(6)
                 .foregroundStyle(.white.opacity(0.88))
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1196,18 +1287,21 @@ struct LyricsView: View {
         }
     }
 
-    private func lyricLine(_ text: String, isActive: Bool, isBackground: Bool = false, isSecondary: Bool = false) -> some View {
-        let opacity: Double = if isActive {
-            isBackground ? 0.75 : 0.98
-        } else {
-            isBackground ? 0.25 : 0.50
-        }
+    private func lyricLine(_ text: String, isActive: Bool, isBackground: Bool = false, isSecondary: Bool = false)
+        -> some View
+    {
+        let opacity: Double =
+            if isActive {
+                isBackground ? 0.75 : 0.98
+            } else {
+                isBackground ? 0.25 : 0.50
+            }
         let frameAlignment: Alignment = isSecondary ? .trailing : .leading
         let textAlignment: TextAlignment = isSecondary ? .trailing : .leading
         let scaleAnchor: UnitPoint = isSecondary ? .trailing : .leading
 
         return Text(text.isEmpty ? " " : text)
-            .font(.system(size: 25, weight: .semibold, design: .rounded))
+            .font(lyricFont)
             .italic(isBackground)
             .foregroundStyle(.white.opacity(opacity))
             .frame(maxWidth: .infinity, alignment: frameAlignment)
@@ -1218,7 +1312,9 @@ struct LyricsView: View {
     }
 
     /// Renders a lyric line with optional translation below it (Apple Music style).
-    private func lyricLineWithTranslation(line: SyncedLine, isActive: Bool, isBackground: Bool = false, isSecondary: Bool = false) -> some View {
+    private func lyricLineWithTranslation(
+        line: SyncedLine, isActive: Bool, isBackground: Bool = false, isSecondary: Bool = false
+    ) -> some View {
         let alignment: HorizontalAlignment = isSecondary ? .trailing : .leading
         let frameAlignment: Alignment = isSecondary ? .trailing : .leading
         let textAlignment: TextAlignment = isSecondary ? .trailing : .leading
@@ -1242,8 +1338,12 @@ struct LyricsView: View {
 
     // MARK: - Scroll Centering
 
-    private func centerActiveLine(in synced: [SyncedLine], proxy: ScrollViewProxy, currentPositionMs: Int64, animated: Bool) {
-        guard let active = activeLineIndex(in: synced, currentPositionMs: currentPositionMs), active != lastCenteredIndex else { return }
+    private func centerActiveLine(
+        in synced: [SyncedLine], proxy: ScrollViewProxy, currentPositionMs: Int64, animated: Bool
+    ) {
+        guard let active = activeLineIndex(in: synced, currentPositionMs: currentPositionMs),
+            active != lastCenteredIndex
+        else { return }
 
         DispatchQueue.main.async {
             if animated {
@@ -1281,9 +1381,8 @@ private struct WordFlowLayout: Layout, @unchecked Sendable {
     /// When true, rows are right-aligned within the container (for secondary vocalist).
     var alignTrailing: Bool = false
 
-    /// Approximate width of a space in the lyrics font.
-    /// Measured for .system(size: 25, weight: .semibold, design: .rounded).
-    private static let spaceWidth: CGFloat = 7.5
+    /// Approximate space width for the caller's lyrics font.
+    var spaceWidth: CGFloat = 7.5
 
     nonisolated func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) -> CGSize {
         let rows = computeRows(proposal: proposal, subviews: subviews)
@@ -1293,7 +1392,8 @@ private struct WordFlowLayout: Layout, @unchecked Sendable {
         return CGSize(width: min(width, proposal.width ?? .infinity), height: height)
     }
 
-    nonisolated func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache _: inout ()) {
+    nonisolated func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache _: inout ())
+    {
         let rows = computeRows(proposal: proposal, subviews: subviews)
         var subviewIndex = 0
         for row in rows {
@@ -1302,13 +1402,13 @@ private struct WordFlowLayout: Layout, @unchecked Sendable {
             let rowOriginX = alignTrailing ? bounds.maxX - row.width : bounds.minX
 
             var x = rowOriginX
-            for posInRow in 0 ..< row.count {
+            for posInRow in 0..<row.count {
                 let subview = subviews[subviewIndex]
                 let size = subview.sizeThatFits(.unspecified)
                 // Add inter-word gap if this word had a leading space — but not
                 // at the start of a row (to avoid indentation on wrapped lines).
                 if posInRow > 0, subview[WordGapKey.self] {
-                    x += Self.spaceWidth
+                    x += spaceWidth
                 }
                 subview.place(at: CGPoint(x: x, y: bounds.minY + row.yOffset), proposal: .unspecified)
                 x += size.width
@@ -1331,7 +1431,7 @@ private struct WordFlowLayout: Layout, @unchecked Sendable {
 
         for subview in subviews {
             let size = subview.sizeThatFits(.unspecified)
-            let gap: CGFloat = (currentRow.count > 0 && subview[WordGapKey.self]) ? Self.spaceWidth : 0
+            let gap: CGFloat = (currentRow.count > 0 && subview[WordGapKey.self]) ? spaceWidth : 0
             let neededWidth = size.width + gap
 
             if currentRow.count > 0, currentRow.width + neededWidth > maxWidth {

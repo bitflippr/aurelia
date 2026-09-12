@@ -7,8 +7,9 @@ import uniffi.aurelia_core.Song
  */
 data class HomeMix(
   val seedId: String,
-  val seedTitle: String,
-  val artworkUrl: String?,
+  val title: String,
+  val artistNames: List<String>,
+  val artworkUrls: List<String>,
   val songs: List<Song>,
 )
 
