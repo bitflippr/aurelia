@@ -13,11 +13,13 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import uniffi.aurelia_core.Song
 import uniffi.aurelia_core.buildAndroidStreamUrl
@@ -47,9 +49,19 @@ class PlayerController(
   // Track if we're in the process of connecting
   private var isConnecting = false
   private var reconnectJob: kotlinx.coroutines.Job? = null
+  private var positionSamplingJob: Job? = null
+  private var positionDiscontinuitySequence = 0L
 
   private val controllerListener =
     object : Player.Listener {
+      override fun onPositionDiscontinuity(
+        oldPosition: Player.PositionInfo,
+        newPosition: Player.PositionInfo,
+        reason: Int,
+      ) {
+        positionDiscontinuitySequence++
+      }
+
       override fun onEvents(
         player: Player,
         events: Player.Events,
@@ -68,6 +80,7 @@ class PlayerController(
         }
 
         publishSnapshot(controller)
+        updatePositionSampling(controller)
       }
     }
 
@@ -119,9 +132,13 @@ class PlayerController(
 
   private fun onControllerConnected(controller: MediaController) {
     Log.d(TAG, "MediaController connected")
+    positionSamplingJob?.cancel()
+    positionSamplingJob = null
     _isConnected.value = true
     isConnecting = false
+    positionDiscontinuitySequence++
     publishSnapshot(controller)
+    updatePositionSampling(controller)
     // Execute any pending actions
     synchronized(pendingActions) {
       pendingActions.forEach { action ->
@@ -309,6 +326,8 @@ class PlayerController(
   }
 
   fun release() {
+    positionSamplingJob?.cancel()
+    positionSamplingJob = null
     reconnectJob?.cancel()
     reconnectJob = null
     mediaController?.removeListener(controllerListener)
@@ -370,6 +389,7 @@ class PlayerController(
       currentAlbumName = song?.album ?: extras?.getString(AureliaMediaItems.EXTRA_ALBUM_NAME),
       playbackSpeed = controller.playbackParameters.speed,
       updateTimeMs = SystemClock.elapsedRealtime(),
+      positionDiscontinuitySequence = positionDiscontinuitySequence,
       codec = song?.codec ?: extras?.getString(AureliaMediaItems.EXTRA_CODEC),
       bitRate = song?.bitRate ?: extras?.getInt(AureliaMediaItems.EXTRA_BIT_RATE)?.takeIf { it != 0 },
       sampleRate = song?.sampleRate ?: extras?.getInt(AureliaMediaItems.EXTRA_SAMPLE_RATE)?.takeIf { it != 0 },
@@ -378,6 +398,25 @@ class PlayerController(
 
   private fun publishSnapshot(controller: MediaController) {
     _snapshots.value = snapshotFrom(controller)
+  }
+
+  private fun updatePositionSampling(controller: MediaController) {
+    if (!controller.isConnected || (!controller.isPlaying && controller.playbackState != Player.STATE_BUFFERING)) {
+      positionSamplingJob?.cancel()
+      positionSamplingJob = null
+      return
+    }
+    if (positionSamplingJob?.isActive == true) return
+    positionSamplingJob =
+      CoroutineScope(Dispatchers.Main).launch {
+        // Normal progress and session clock corrections do not produce Player events.
+        while (isActive && mediaController === controller && controller.isConnected) {
+          delay(250)
+          if (mediaController !== controller || !controller.isConnected) break
+          publishSnapshot(controller)
+          if (!controller.isPlaying && controller.playbackState != Player.STATE_BUFFERING) break
+        }
+      }
   }
 
   private fun withController(action: (MediaController) -> Unit) {
@@ -433,6 +472,7 @@ data class PlayerSnapshot(
   val currentAlbumName: String? = null,
   val playbackSpeed: Float = 1f,
   val updateTimeMs: Long = 0L,
+  val positionDiscontinuitySequence: Long = 0L,
   val codec: String? = null,
   val bitRate: Int? = null,
   val sampleRate: Int? = null,

@@ -26,6 +26,7 @@ data class PlayerState(
   val isFavoriteLoading: Boolean = false,
   val playbackSpeed: Float = 1f,
   val updateTimeMs: Long = 0L,
+  val positionDiscontinuitySequence: Long = 0L,
   val codec: String? = null,
   val bitRate: Int? = null,
   val sampleRate: Int? = null,

@@ -137,6 +137,7 @@ class PlayerViewModel(
       isFavorite = isFavorite,
       playbackSpeed = snapshot.playbackSpeed,
       updateTimeMs = snapshot.updateTimeMs,
+      positionDiscontinuitySequence = snapshot.positionDiscontinuitySequence,
       codec = snapshot.codec,
       bitRate = snapshot.bitRate,
       sampleRate = snapshot.sampleRate,
