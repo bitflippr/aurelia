@@ -1,0 +1,4 @@
+[submodule "vendor/gpuix"]
+	path = vendor/gpuix
+	url = https://github.com/skulldogged/gpuix
+	branch = aurelia

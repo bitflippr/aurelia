@@ -43,25 +43,46 @@ After the first workflow release succeeds, add `https://github.com/skulldogged/a
 
 On an unpatched device, use a private, persistent release keystore instead.
 
-## Desktop prototype
+## Desktop
 
-The desktop prototype uses the mainline GPUI revision pinned in
-`apps/desktop/Cargo.toml`. It does not depend on `gpui-component`.
+The desktop interface is React/TypeScript in `apps/desktop/ui`, rendered as
+native GPUI elements by GPUIX. `apps/desktop/src` is the Rust runtime: session,
+library sync, the playback queue, Rodio playback, Souvlaki media controls and
+artwork colors. `apps/desktop/native/aurelia.rs` connects the two inside the
+renderer and paints the seek bar; `apps/desktop/native/lyrics.rs` draws synced
+lyrics the way the Android app does, tuned by the settings in
+`apps/desktop/ui/lyrics.tsx`.
 
-On NixOS, enter the development shell so Fontconfig, Wayland, X11, and Vulkan
-libraries are available, then run:
+GPUIX comes from the `skulldogged/gpuix` fork in `vendor/gpuix`, pinned to its
+`aurelia` branch: the `shared` branch (upstream plus the changes Aurelia and
+Slate share) and one commit linking Aurelia's runtime. See
+`vendor/gpuix/downstream/README.md` for what the fork adds.
+
+Prerequisites: Bun, Rust, and the platform C/C++ build tools (MSVC on
+Windows). On NixOS, `nix develop` supplies the Linux libraries.
 
 ```bash
-nix develop
-cargo run -p aurelia-desktop
+git submodule update --init vendor/gpuix
+bun install
+bun run desktop:native
+bun run desktop
 ```
 
-The desktop app authenticates directly through `aurelia-core`, stores its
-session in Aurelia's application-data directory, and performs the same smart
-library and favorites sync used by mobile. The home screen is populated from a
-profile-specific cache after sync completes. Desktop playback uses Rodio for
-streaming and Souvlaki for system media-session integration, including metadata,
-media keys, and transport controls.
+- `desktop:native` applies the fork's GPUI patches to its Zed checkout, compiles
+  the GPUIX packages' TypeScript, and builds the renderer in release mode. It
+  publishes `.local/native/aurelia-<hash>.node` and names it in
+  `.local/native/latest.json`, so a build never replaces a binding a running
+  Aurelia has loaded. `CARGO_TARGET_DIR` moves the build cache, which defaults
+  to `.local/native-target`.
+- `desktop` starts with Bun's hot reload: saving interface code updates the
+  window while the queue and playback carry on. Saving native code (the
+  runtime, the renderer extension, `crates`, the GPUIX fork or its GPUI)
+  rebuilds the renderer and restarts the app on it; a failed build leaves the
+  app running. `desktop:start` runs once, without either.
+- `desktop:typecheck` checks the interface's types.
+
+Interface fonts are static cuts of Google Sans Flex (`ui/assets/fonts`, SIL
+Open Font License), loaded by the renderer at startup.
 
 ## iOS
 

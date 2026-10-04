@@ -99,8 +99,9 @@ impl JellyfinClient {
                 token
             )
         } else {
+            // Rodio plays two channels; surround sources are mixed down.
             format!(
-                "{}?ApiKey={}",
+                "{}?ApiKey={}&maxAudioChannels=2",
                 utils::build_jellyfin_url(
                     &self.server_url,
                     &format!("/Audio/{item_id}/stream.aac")

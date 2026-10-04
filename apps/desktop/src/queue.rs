@@ -1,4 +1,4 @@
-use crate::state::Track;
+use crate::track::Track;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -71,10 +71,6 @@ impl PlaybackQueue {
 
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.entries.len()
     }
 
     pub fn current_id(&self) -> Option<QueueEntryId> {

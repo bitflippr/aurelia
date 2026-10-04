@@ -85,6 +85,7 @@
               rustToolchain
               jdk17
               cargo-ndk
+              bun
             ]
             ++ lib.optionals stdenv.isLinux ([android-studio pkg-config] ++ desktopLinuxLibraries);
 

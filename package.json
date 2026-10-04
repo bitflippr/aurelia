@@ -1,0 +1,18 @@
+{
+  "name": "aurelia",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/desktop",
+    "vendor/gpuix/packages/native",
+    "vendor/gpuix/packages/react"
+  ],
+  "scripts": {
+    "desktop": "bun apps/desktop/scripts/dev.ts",
+    "desktop:start": "bun apps/desktop/ui/main.tsx",
+    "desktop:native": "bun apps/desktop/scripts/build-native.ts",
+    "desktop:prepare": "bun apps/desktop/scripts/prepare.ts",
+    "desktop:package": "bun apps/desktop/scripts/package.ts",
+    "desktop:typecheck": "bun run --cwd apps/desktop tsc -p tsconfig.json"
+  }
+}

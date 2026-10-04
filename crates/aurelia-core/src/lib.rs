@@ -165,19 +165,26 @@ pub fn build_android_stream_url(
     container: Option<String>,
     codec: Option<String>,
 ) -> String {
-    let is_eac3 = codec
-        .as_deref()
-        .or(container.as_deref())
-        .is_some_and(|value| {
-            matches!(
-                value.to_ascii_lowercase().as_str(),
-                "eac3" | "e-ac-3" | "ec-3" | "ec3"
-            )
-        });
-    if !is_eac3 {
+    if !is_eac3(codec.as_deref().or(container.as_deref())) {
         return build_mobile_stream_url(server_url, token, item_id, container);
     }
-    // Mix surround channels before transport; FLAC avoids another lossy encode.
+    stereo_transcode_url(server_url, token, item_id)
+}
+
+/// Whether a codec or container name is E-AC-3 (Dolby Digital Plus, often
+/// Atmos), which arrives as 5.1 or more channels.
+pub fn is_eac3(value: Option<&str>) -> bool {
+    value.is_some_and(|value| {
+        matches!(
+            value.to_ascii_lowercase().as_str(),
+            "eac3" | "e-ac-3" | "ec-3" | "ec3"
+        )
+    })
+}
+
+/// Mix surround channels down before transport; FLAC avoids another lossy
+/// encode.
+fn stereo_transcode_url(server_url: String, token: String, item_id: String) -> String {
     let url = build_mobile_stream_url(server_url, token, item_id, None);
     url.replace("transcodingContainer=aac", "transcodingContainer=flac")
         .replace("audioCodec=aac", "audioCodec=flac")
@@ -192,6 +199,11 @@ pub fn build_desktop_stream_url(
     item_id: String,
     container: Option<String>,
 ) -> String {
+    // Rodio has no E-AC-3 decoder, and it would play only the front pair
+    // of a surround stream.
+    if is_eac3(container.as_deref()) {
+        return stereo_transcode_url(server_url, token, item_id);
+    }
     let client = services::JellyfinClient::with_auth(server_url, token);
     client.get_desktop_audio_stream_url(&item_id, container.as_deref())
 }
