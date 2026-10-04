@@ -1,5 +1,5 @@
 // Shared controls and pieces, so spacing, type and motion stay consistent.
-import { useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { motion as native, type EventPayload, type MotionProps, type Props, type StyleDesc } from "@gpuix/react";
 import { Icon, type IconName } from "./icons";
 import { imageUrl, type Album, type Artist } from "./library";
@@ -242,7 +242,11 @@ export function Artwork({
   style?: StyleDesc;
 }) {
   const session = useStore((s) => s.session);
-  const src = imageUrl(session, id, tag, size);
+  const scale = useStore((s) => s.window.scale);
+  // Art that resizes with the window is fetched at the size it settles on,
+  // not at every size along the way.
+  const pixels = useSettled(Math.max(1, Math.round(size * scale)));
+  const src = imageUrl(session, id, tag, pixels);
   const corner = round ? size / 2 : r;
   const box: StyleDesc = {
     width: size,
@@ -260,8 +264,29 @@ export function Artwork({
     );
   }
   // Jellyfin serves animated covers as full-size GIFs whatever size is asked
-  // for, and every frame of one decodes to 100–300 MB. Show the first.
-  return <img src={src} animated={false} objectFit="cover" style={{ ...box, backgroundColor: C.surfaceHigh }} />;
+  // for, and every frame of one decodes to 100–300 MB. Show the first, shrunk
+  // to the size it is drawn.
+  return (
+    <img
+      src={src}
+      animated={false}
+      decodeWidth={pixels}
+      decodeHeight={pixels}
+      objectFit="cover"
+      style={{ ...box, backgroundColor: C.surfaceHigh }}
+    />
+  );
+}
+
+/** `value`, once it has held for a moment. */
+function useSettled(value: number, ms = 300): number {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    if (value === settled) return;
+    const timer = setTimeout(() => setSettled(value), ms);
+    return () => clearTimeout(timer);
+  }, [value, settled, ms]);
+  return settled;
 }
 
 /** Four covers in a square, for mixes and playlists without art. */

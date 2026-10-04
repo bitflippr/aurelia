@@ -165,15 +165,11 @@ export function fold(value: string): string {
   return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
-/** Square image buckets, so the same art at nearby sizes shares a download. */
-const BUCKETS = [96, 160, 256, 384, 512, 768];
-
-export function imageUrl(session: Session | null, itemId: string | undefined, tag: string | undefined, size: number) {
+/** Art filling a square of `pixels` device pixels, as the server scales it. */
+export function imageUrl(session: Session | null, itemId: string | undefined, tag: string | undefined, pixels: number) {
   if (!session || !itemId || !tag) return undefined;
-  const want = size * 2;
-  const bucket = BUCKETS.find((b) => b >= want) ?? BUCKETS[BUCKETS.length - 1];
   const base = session.serverUrl.replace(/\/$/, "");
-  return `${base}/Items/${itemId}/Images/Primary?fillWidth=${bucket}&fillHeight=${bucket}&quality=90&tag=${tag}&api_key=${session.token}`;
+  return `${base}/Items/${itemId}/Images/Primary?fillWidth=${pixels}&fillHeight=${pixels}&quality=90&tag=${tag}&api_key=${session.token}`;
 }
 
 export function duration(seconds: number): string {
