@@ -110,7 +110,7 @@ const initial: State = {
   collapsed: false,
   menu: null,
   toast: null,
-  window: { closed: false, maximized: false, fullscreen: false, active: true, dark: true, width: 1280, height: 820 },
+  window: { closed: false, maximized: false, fullscreen: false, active: true, dark: true, width: 1280, height: 820, scale: 1 },
   artwork: {},
   lyrics: {},
   artistInfo: {},
@@ -322,7 +322,8 @@ export function onPoll(
     window.maximized !== s.window.maximized ||
     window.active !== s.window.active ||
     window.width !== s.window.width ||
-    window.height !== s.window.height
+    window.height !== s.window.height ||
+    window.scale !== s.window.scale
   )
     patch.window = window;
   if (Object.keys(patch).length) set(patch);
