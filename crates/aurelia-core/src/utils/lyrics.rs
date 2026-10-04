@@ -1,8 +1,8 @@
 //! Lyrics format conversion utilities
 
 use crate::models::{
-    JellyfinLyricLine, JellyfinLyrics, ParsedLyrics, ParsedLyricsAgent, ParsedLyricsLine,
-    ParsedLyricsSection, ParsedLyricsWord,
+    JellyfinBackgroundCues, JellyfinLyricLine, JellyfinLyrics, ParsedLyrics, ParsedLyricsAgent,
+    ParsedLyricsLine, ParsedLyricsSection, ParsedLyricsWord,
 };
 use std::fmt::Write;
 
@@ -48,16 +48,12 @@ pub fn jellyfin_to_lrc(lyrics: &JellyfinLyrics) -> Result<String, std::fmt::Erro
 ///
 /// Each cue provides character-position indices (`Position`..`EndPosition`) into
 /// the line's `Text` together with start/end tick timestamps.
-fn extract_words_from_cues(
+fn extract_words_from_cues<'a>(
     text: &str,
-    cues: &[crate::models::JellyfinLyricLineCue],
+    cues: impl IntoIterator<Item = &'a crate::models::JellyfinLyricLineCue>,
 ) -> Option<Vec<ParsedLyricsWord>> {
-    if cues.is_empty() {
-        return None;
-    }
-
     let chars: Vec<char> = text.chars().collect();
-    let mut words = Vec::with_capacity(cues.len());
+    let mut words = Vec::new();
     let mut previous_word_end: Option<usize> = None;
 
     for cue in cues {
@@ -111,7 +107,83 @@ fn extract_words_from_cues(
     if words.is_empty() { None } else { Some(words) }
 }
 
+/// The agent backing vocals are attributed to when the lyrics name none.
+const BACKGROUND_AGENT: &str = "background";
+
+/// The agent backing vocals belong to: the lyrics' own `other` agent if they
+/// name one.
+fn background_agent(lyrics: &JellyfinLyrics) -> String {
+    lyrics
+        .agents
+        .iter()
+        .flatten()
+        .find(|agent| agent.agent_type == "other")
+        .map_or_else(|| BACKGROUND_AGENT.to_string(), |agent| agent.id.clone())
+}
+
+/// A line, with its background vocals split out as a line of their own.
+///
+/// Jellyfin keeps a TTML background span (`ttm:role="x-bg"`) in its lead line
+/// and flags the span's words in `flags`. They become a separate line
+/// attributed to an `other` agent, which every client draws as backing vocals.
 fn jellyfin_line_to_parsed(
+    lyrics: &JellyfinLyrics,
+    line: &JellyfinLyricLine,
+    index: usize,
+    flags: Option<&JellyfinBackgroundCues>,
+) -> Vec<ParsedLyricsLine> {
+    let Some(lead) = jellyfin_line_to_parsed_whole(lyrics, line, index) else {
+        return Vec::new();
+    };
+    let cues = line.cues.as_deref().unwrap_or_default();
+    let is_background = |cue: usize| flags.is_some_and(|flags| flags.is_background(index, cue));
+    let words = |background: bool| {
+        extract_words_from_cues(
+            &line.text,
+            cues.iter()
+                .enumerate()
+                .filter(|(cue, _)| is_background(*cue) == background)
+                .map(|(_, cue)| cue),
+        )
+    };
+    let Some(vocals) = words(true) else {
+        return vec![lead];
+    };
+    let background = background_agent(lyrics);
+    let Some(main) = words(false) else {
+        return vec![ParsedLyricsLine {
+            agent_id: Some(background),
+            ..lead
+        }];
+    };
+    let text = |words: &[ParsedLyricsWord]| -> String {
+        words
+            .iter()
+            .map(|word| word.word.as_str())
+            .collect::<String>()
+            .trim()
+            .to_string()
+    };
+    let backing = ParsedLyricsLine {
+        time_ms: vocals[0].time_ms,
+        end_time_ms: vocals
+            .last()
+            .and_then(|word| word.end_time_ms)
+            .or(lead.end_time_ms),
+        line: text(&vocals),
+        words: Some(vocals),
+        agent_id: Some(background),
+        translation: None,
+    };
+    let lead = ParsedLyricsLine {
+        line: text(&main),
+        words: Some(main),
+        ..lead
+    };
+    vec![lead, backing]
+}
+
+fn jellyfin_line_to_parsed_whole(
     lyrics: &JellyfinLyrics,
     line: &JellyfinLyricLine,
     index: usize,
@@ -153,6 +225,23 @@ fn jellyfin_line_to_parsed(
 /// data — these are converted to [`ParsedLyricsWord`] entries.
 #[must_use]
 pub fn jellyfin_to_parsed_lyrics(lyrics: &JellyfinLyrics) -> ParsedLyrics {
+    convert_jellyfin_lyrics(lyrics, None)
+}
+
+/// [`jellyfin_to_parsed_lyrics`], with the cues `background` flags split out
+/// as backing-vocal lines.
+#[must_use]
+pub fn jellyfin_to_parsed_lyrics_with_background(
+    lyrics: &JellyfinLyrics,
+    background: &JellyfinBackgroundCues,
+) -> ParsedLyrics {
+    convert_jellyfin_lyrics(lyrics, Some(background))
+}
+
+fn convert_jellyfin_lyrics(
+    lyrics: &JellyfinLyrics,
+    flags: Option<&JellyfinBackgroundCues>,
+) -> ParsedLyrics {
     let mut synced = Vec::new();
     let mut plain = Vec::new();
     let mut has_timestamps = false;
@@ -161,15 +250,13 @@ pub fn jellyfin_to_parsed_lyrics(lyrics: &JellyfinLyrics) -> ParsedLyrics {
         let text = line.text.trim().to_string();
         if line.timestamp.is_some() {
             has_timestamps = true;
-            if let Some(parsed_line) = jellyfin_line_to_parsed(lyrics, line, i) {
-                synced.push(parsed_line);
-            }
+            synced.extend(jellyfin_line_to_parsed(lyrics, line, i, flags));
         } else {
             plain.push(text);
         }
     }
 
-    let agents = lyrics.agents.as_ref().map(|agents| {
+    let mut agents: Option<Vec<ParsedLyricsAgent>> = lyrics.agents.as_ref().map(|agents| {
         agents
             .iter()
             .map(|agent| ParsedLyricsAgent {
@@ -178,6 +265,19 @@ pub fn jellyfin_to_parsed_lyrics(lyrics: &JellyfinLyrics) -> ParsedLyrics {
             })
             .collect()
     });
+    // Backing vocals split out of their lines need an agent clients know as `other`.
+    let background = background_agent(lyrics);
+    let named = agents.iter().flatten().any(|agent| agent.id == background);
+    if !named
+        && synced
+            .iter()
+            .any(|line| line.agent_id.as_deref() == Some(background.as_str()))
+    {
+        agents.get_or_insert_with(Vec::new).push(ParsedLyricsAgent {
+            id: background,
+            agent_type: "other".to_string(),
+        });
+    }
 
     let sections = lyrics.sections.as_ref().map(|sections| {
         sections
@@ -190,7 +290,7 @@ pub fn jellyfin_to_parsed_lyrics(lyrics: &JellyfinLyrics) -> ParsedLyrics {
                     .lines
                     .iter()
                     .enumerate()
-                    .filter_map(|(i, line)| jellyfin_line_to_parsed(lyrics, line, i))
+                    .flat_map(|(i, line)| jellyfin_line_to_parsed(lyrics, line, i, None))
                     .collect(),
                 agent_id: section.agent_id.clone(),
             })

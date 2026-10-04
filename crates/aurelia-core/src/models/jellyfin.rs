@@ -117,6 +117,41 @@ pub struct JellyfinLyricLineCue {
     pub word: Option<String>,
 }
 
+/// Which cues are background vocals (a TTML `ttm:role="x-bg"` span), read
+/// from the same response as [`JellyfinLyrics`].
+#[derive(Deserialize, Debug, Default)]
+pub struct JellyfinBackgroundCues {
+    #[serde(rename = "Lyrics")]
+    #[serde(default)]
+    lines: Vec<JellyfinBackgroundLine>,
+}
+
+#[derive(Deserialize, Debug, Default)]
+struct JellyfinBackgroundLine {
+    #[serde(rename = "Cues")]
+    #[serde(default)]
+    cues: Option<Vec<JellyfinBackgroundCue>>,
+}
+
+#[derive(Deserialize, Debug, Default)]
+struct JellyfinBackgroundCue {
+    #[serde(rename = "IsBackground")]
+    #[serde(default)]
+    is_background: bool,
+}
+
+impl JellyfinBackgroundCues {
+    /// Whether cue `cue` of lyric line `line` is a background vocal.
+    #[must_use]
+    pub fn is_background(&self, line: usize, cue: usize) -> bool {
+        self.lines
+            .get(line)
+            .and_then(|line| line.cues.as_ref())
+            .and_then(|cues| cues.get(cue))
+            .is_some_and(|cue| cue.is_background)
+    }
+}
+
 /// Singer/performer agent metadata from TTML lyrics.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct JellyfinLyricAgent {

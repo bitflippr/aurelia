@@ -12,7 +12,7 @@ use crate::error::{AppError, AppResult};
 use crate::models::{
     Artist, NameIdPair, Song,
     auth::{JellyfinAuthResponse, LoginResponse},
-    jellyfin::{ClientCapabilities, JellyfinLyrics},
+    jellyfin::{ClientCapabilities, JellyfinBackgroundCues, JellyfinLyrics},
 };
 use crate::utils;
 use crate::utils::error_handling;

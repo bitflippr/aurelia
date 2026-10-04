@@ -343,7 +343,7 @@ pub async fn get_lyrics(
     // 1. Try server lyrics for providers that support it
     if !server_url.is_empty() && !token.is_empty() && !item_id.is_empty() {
         let client = services::JellyfinClient::with_auth(server_url, token);
-        if let Ok(Some(jf_lyrics)) = client.get_lyrics(&item_id).await
+        if let Ok(Some((jf_lyrics, _))) = client.get_lyrics(&item_id).await
             && let Ok(lrc) = utils::lyrics::jellyfin_to_lrc(&jf_lyrics)
             && !lrc.trim().is_empty()
         {
@@ -377,7 +377,7 @@ pub async fn get_parsed_lyrics(
         );
         let client = services::JellyfinClient::with_auth(server_url.clone(), token.clone());
         match client.get_lyrics(&item_id).await {
-            Ok(Some(jf_lyrics)) => {
+            Ok(Some((jf_lyrics, background))) => {
                 let line_count = jf_lyrics.lyrics.len();
                 let lines_with_cues = jf_lyrics
                     .lyrics
@@ -394,7 +394,10 @@ pub async fn get_parsed_lyrics(
                     agent_count,
                 );
 
-                let parsed = utils::lyrics::jellyfin_to_parsed_lyrics(&jf_lyrics);
+                let parsed = utils::lyrics::jellyfin_to_parsed_lyrics_with_background(
+                    &jf_lyrics,
+                    &background,
+                );
                 tracing::info!(
                     "[Lyrics] Converted: syncedLines={}, hasWords={}, plainLines={}, hasSections={}",
                     parsed.synced.len(),

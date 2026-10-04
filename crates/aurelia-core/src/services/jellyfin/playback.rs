@@ -1,8 +1,11 @@
 use super::*;
 
 impl JellyfinClient {
-    /// Get lyrics for a song
-    pub async fn get_lyrics(&self, item_id: &str) -> AppResult<Option<JellyfinLyrics>> {
+    /// Get lyrics for a song, with which of their cues are background vocals.
+    pub async fn get_lyrics(
+        &self,
+        item_id: &str,
+    ) -> AppResult<Option<(JellyfinLyrics, JellyfinBackgroundCues)>> {
         let lyrics_url = utils::build_jellyfin_url(
             &self.server_url,
             &format!("/Audio/{item_id}/Lyrics?preferredFormat=ttml"),
@@ -34,7 +37,10 @@ impl JellyfinClient {
         );
 
         match serde_json::from_str::<JellyfinLyrics>(&body) {
-            Ok(lyrics) => Ok(Some(lyrics)),
+            Ok(lyrics) => {
+                let background = serde_json::from_str(&body).unwrap_or_default();
+                Ok(Some((lyrics, background)))
+            }
             Err(e) => {
                 tracing::error!("[Lyrics] Failed to parse Jellyfin lyrics JSON: {}", e);
                 Ok(None)
