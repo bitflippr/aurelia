@@ -1,9 +1,13 @@
 //! Aurelia's GPUIX extension, compiled into the renderer by the fork's
 //! `aurelia` branch. The interface stays in TypeScript; this file connects it
 //! to the desktop runtime and paints the seek bar, which follows playback on
-//! its own instead of through React. `lyrics.rs` does the same for lyrics.
+//! its own instead of through React. `lyrics.rs` does the same for lyrics, and
+//! `clouds.rs` paints the full player's moving backdrop.
 use crate::{
-    custom_elements::{custom_surface, CustomElement, CustomElementFactory, CustomRenderContext},
+    custom_elements::{
+        custom_surface, CustomElement, CustomElementFactory, CustomElementRegistry,
+        CustomRenderContext,
+    },
     GpuixRenderer,
 };
 use gpui::{prelude::*, *};
@@ -12,9 +16,17 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "clouds.rs"]
+mod clouds;
 #[path = "lyrics.rs"]
 mod lyrics;
-pub use lyrics::LyricsFactory;
+
+/// Add Aurelia's elements to the renderer's.
+pub fn register(registry: &mut CustomElementRegistry) {
+    registry.register(Box::new(WaveFactory));
+    registry.register(Box::new(lyrics::LyricsFactory));
+    registry.register(Box::new(clouds::CloudsFactory));
+}
 
 /// While something plays, the seek bar redraws this often. Progress moves
 /// about a pixel a second, so this looks continuous without redrawing the

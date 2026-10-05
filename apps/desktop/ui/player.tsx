@@ -455,33 +455,8 @@ export function NowCard() {
 
 // ---- Full player --------------------------------------------------------------
 
-/** A slowly drifting cloud of color. Each blob ping-pongs between two spots. */
-function Cloud({ color, from, to, size, duration: seconds, opacity }: {
-  color: string;
-  from: [number, number];
-  to: [number, number];
-  size: number;
-  duration: number;
-  opacity: number;
-}) {
-  const [there, setThere] = useState(false);
-  const [left, top] = there ? to : from;
-  return (
-    <Motion
-      initial={false}
-      animate={{ left, top, opacity }}
-      transition={{ duration: seconds, ease: "easeInOut" }}
-      onMotionComplete={() => setThere((t) => !t)}
-      style={{
-        position: "absolute",
-        width: size,
-        height: size,
-        borderRadius: size / 2,
-        boxShadow: { offsetX: 0, offsetY: 0, blurRadius: size * 0.9, spreadRadius: size * 0.2, color },
-      }}
-    />
-  );
-}
+/** Cloud colors for a song whose art has none. */
+const PLAIN_CLOUDS = ["#4b3a9a", "#7a3560", "#2f4f80"];
 
 export function FullPlayer() {
   const open = useStore((s) => s.full);
@@ -512,11 +487,10 @@ function FullPlayerBody() {
   useStore((s) => s.favVersion);
   useEffect(() => ensureArtwork(song?.albumId, tag), [song?.albumId, tag]);
   if (!song) return null;
-  const palette = typeof art === "object" ? art.palette : (["#4b3a9a", "#7a3560", "#2f4f80"] as const);
-  const backdrop = typeof art === "object" ? art.backdrop : undefined;
+  // While new art loads, the clouds keep the last song's colors.
+  const clouds = typeof art === "object" ? art.palette : art === "none" ? PLAIN_CLOUDS : undefined;
   const w = win.width;
   const h = win.height;
-  const big = Math.max(w, h) * 0.5;
   const artSize = Math.min(460, Math.max(240, Math.min(w * 0.36, h - 330)));
 
   const tabs: { key: typeof tab; label: string }[] = [
@@ -526,20 +500,7 @@ function FullPlayerBody() {
   ];
   return (
     <div style={{ position: "relative", width: "100%", height: "100%", overflow: "hidden" }}>
-      {backdrop && <img src={backdrop} objectFit="cover" style={{ position: "absolute", left: 0, top: 0, width: w, height: h, opacity: 0.55 }} />}
-      <Cloud color={palette[0]} size={big} from={[-big * 0.3, -big * 0.4]} to={[w * 0.05, -big * 0.2]} duration={26} opacity={0.55} />
-      <Cloud color={palette[1]} size={big} from={[w - big * 0.6, -big * 0.2]} to={[w - big * 0.9, h * 0.05]} duration={31} opacity={0.5} />
-      <Cloud color={palette[2]} size={big * 0.9} from={[w * 0.1, h - big * 0.4]} to={[w * 0.3, h - big * 0.6]} duration={37} opacity={0.5} />
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          top: 0,
-          width: w,
-          height: h,
-          background: { type: "linear-gradient", angle: 180, stops: [{ color: "#00000014", position: 0 }, { color: "#00000066", position: 1 }] },
-        }}
-      />
+      {createElement("aurelia-clouds", { colors: clouds, style: { position: "absolute", left: 0, top: 0, width: w, height: h } })}
       <div style={{ ...column, position: "absolute", left: 0, top: 0, width: w, height: h }}>
         <div style={{ ...row, height: 56, flexShrink: 0, paddingLeft: 16 }}>
           <IconButton icon="down" label="Close the player" color="#ffffffcc" iconSize={22} onClick={() => setFull(false)} style={{ hover: { backgroundColor: "#ffffff1f" } }} />
@@ -589,7 +550,7 @@ function FullPlayerBody() {
                   >
                     <text style={{ fontSize: 16, color: "#ffffffb8", ...ellipsis }}>{song.artist}</text>
                   </div>
-                  <text style={{ fontSize: 16, color: "#ffffff73" }}>—</text>
+                  <text style={{ fontSize: 16, color: "#ffffff73" }}>·</text>
                   <div role="link" onClick={() => song.albumId && go({ name: "album", id: song.albumId })} style={{ cursor: "pointer", flexShrink: 1, minWidth: 0 }}>
                     <text style={{ fontSize: 16, color: "#ffffffb8", ...ellipsis }}>{song.album}</text>
                   </div>
