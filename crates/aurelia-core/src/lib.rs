@@ -182,6 +182,16 @@ pub fn is_eac3(value: Option<&str>) -> bool {
     })
 }
 
+/// Whether the desktop's Symphonia decoders handle a codec, as Jellyfin names
+/// it. Others, such as Opus, are transcoded whatever file holds them.
+pub fn desktop_decodes(codec: &str) -> bool {
+    let codec = codec.to_ascii_lowercase();
+    matches!(
+        codec.as_str(),
+        "flac" | "mp3" | "mp2" | "aac" | "alac" | "vorbis"
+    ) || codec.starts_with("pcm_")
+}
+
 /// Mix surround channels down before transport; FLAC avoids another lossy
 /// encode.
 fn stereo_transcode_url(server_url: String, token: String, item_id: String) -> String {

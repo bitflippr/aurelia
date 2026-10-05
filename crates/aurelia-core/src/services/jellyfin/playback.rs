@@ -1,5 +1,12 @@
 use super::*;
 
+/// Containers the desktop reads straight from Jellyfin: Rodio's Symphonia
+/// demuxes them all. A codec it can't decode arrives named by its codec
+/// instead (see `desktop_decodes`), so it never matches.
+const DESKTOP_DIRECT_CONTAINERS: &[&str] = &[
+    "flac", "mp3", "aac", "ogg", "m4a", "m4b", "mp4", "mov", "wav", "aiff", "aif",
+];
+
 impl JellyfinClient {
     /// Get lyrics for a song, with which of their cues are background vocals.
     pub async fn get_lyrics(
@@ -93,12 +100,18 @@ impl JellyfinClient {
 
     /// Get an audio stream URL for Aurelia's desktop streaming engine.
     ///
-    /// Seekable formats are served directly. Other formats use Jellyfin's AAC
-    /// transcoder so Rodio receives a progressive stream that can be restarted
-    /// with `startTimeTicks` when native seeking is unavailable.
+    /// Files Rodio can read are served untouched; Jellyfin answers range
+    /// requests for them, so seeking works. Jellyfin transcodes the rest to
+    /// FLAC, which is lossless, so nothing is lost beyond what the file
+    /// already lost, and the stream can be restarted with `startTimeTicks`.
     pub fn get_desktop_audio_stream_url(&self, item_id: &str, container: Option<&str>) -> String {
         let token = self.token.as_deref().unwrap_or("");
-        if utils::supports_seeking(container) {
+        let direct = container.is_some_and(|container| {
+            DESKTOP_DIRECT_CONTAINERS
+                .iter()
+                .any(|direct| direct.eq_ignore_ascii_case(container))
+        });
+        if direct {
             format!(
                 "{}?ApiKey={}&static=true",
                 utils::build_jellyfin_url(&self.server_url, &format!("/Audio/{item_id}/stream")),
@@ -107,10 +120,10 @@ impl JellyfinClient {
         } else {
             // Rodio plays two channels; surround sources are mixed down.
             format!(
-                "{}?ApiKey={}&maxAudioChannels=2",
+                "{}?ApiKey={}&audioCodec=flac&maxAudioChannels=2",
                 utils::build_jellyfin_url(
                     &self.server_url,
-                    &format!("/Audio/{item_id}/stream.aac")
+                    &format!("/Audio/{item_id}/stream.flac")
                 ),
                 token
             )

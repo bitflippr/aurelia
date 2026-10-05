@@ -150,12 +150,15 @@ pub fn track_from(song: &SongView) -> Track {
         album: song.album.clone(),
         album_id: song.album_id.clone(),
         artwork_id: song.album_id.clone(),
-        // The container chooses how the song streams. E-AC-3 needs a stereo
-        // transcode whatever file holds it, so it is named by its codec.
-        container: if aurelia_core::is_eac3(song.codec.as_deref()) {
-            Some("eac3".into())
-        } else {
-            song.container.clone()
+        // The container chooses how the song streams. A codec the desktop
+        // can't decode needs a transcode whatever file holds it, so it is
+        // named by its codec; E-AC-3 also gets mixed down to stereo.
+        container: match song.codec.as_deref() {
+            codec if aurelia_core::is_eac3(codec) => Some("eac3".into()),
+            Some(codec) if !aurelia_core::desktop_decodes(codec) => {
+                Some(codec.to_ascii_lowercase())
+            }
+            _ => song.container.clone(),
         },
         duration_seconds: song.duration.round() as u32,
         art_color: 0,
