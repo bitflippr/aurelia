@@ -16,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.core.graphics.ColorUtils
 import androidx.palette.graphics.Palette
 import kotlinx.coroutines.isActive
 import kotlin.math.cos
@@ -38,7 +40,47 @@ internal fun artworkCloudColors(bitmap: Bitmap): ArtworkCloudColors {
   )
 }
 
-/** Slowly drifting, broad gradients. Only colors survive the artwork sampling. */
+/**
+ * A cloud: its color (primary, secondary or accent), the point it circles, how far it wanders from
+ * there on each axis and how fast, in fractions of the backdrop and radians per second.
+ */
+private class Cloud(
+  val color: Int,
+  val homeX: Float,
+  val homeY: Float,
+  val wanderX: Float,
+  val wanderY: Float,
+  val speedX: Float,
+  val speedY: Float,
+  val phase: Float,
+)
+
+/**
+ * Loops with unrelated speeds, so the pattern takes minutes to come around. The desktop's
+ * `<aurelia-clouds>` uses the same clouds.
+ */
+private val clouds =
+  listOf(
+    Cloud(0, 0.22f, 0.25f, 0.28f, 0.22f, 0.31f, 0.23f, 0f),
+    Cloud(1, 0.78f, 0.3f, 0.25f, 0.25f, 0.19f, 0.29f, 1.7f),
+    Cloud(2, 0.35f, 0.8f, 0.3f, 0.2f, 0.26f, 0.17f, 3.1f),
+    Cloud(1, 0.75f, 0.85f, 0.24f, 0.2f, 0.22f, 0.33f, 4.4f),
+    Cloud(0, 0.5f, 0.5f, 0.35f, 0.3f, 0.15f, 0.21f, 2.3f),
+  )
+
+/** Art colors are toned for flat tints; a little richer reads better as light on a dark base. */
+private fun richer(color: Color): Color {
+  val hsl = FloatArray(3)
+  ColorUtils.colorToHSL(color.toArgb(), hsl)
+  hsl[1] = (hsl[1] * 1.15f).coerceAtMost(1f)
+  hsl[2] = hsl[2].coerceIn(0.38f, 0.5f)
+  return Color(ColorUtils.HSLToColor(hsl)).copy(alpha = color.alpha)
+}
+
+/**
+ * Drifting gradients that swell and shrink as they go. Only colors survive the artwork sampling.
+ * Clouds this size leave dark gaps between them, so overlapping hues don't all average to brown.
+ */
 @Composable
 internal fun ArtworkCloudBackdrop(
   colors: ArtworkCloudColors,
@@ -57,7 +99,7 @@ internal fun ArtworkCloudBackdrop(
     var previous = withFrameNanos { it }
     while (isActive) {
       withFrameNanos { now ->
-        seconds = (seconds + (now - previous).coerceAtMost(100_000_000) / 1_000_000_000f) % 3_600f
+        seconds += (now - previous).coerceAtMost(100_000_000) / 1_000_000_000f
         previous = now
       }
     }
@@ -66,24 +108,23 @@ internal fun ArtworkCloudBackdrop(
   Canvas(modifier) {
     drawRect(if (dark) Color(0xFF100F18) else Color(0xFFF0ECF4))
     if (showClouds) {
-      val t = seconds * 0.12f
-      val shades = listOf(primary, secondary, accent, secondary)
-      val centers =
-        listOf(
-          Offset(0.2f + 0.22f * sin(t), 0.2f + 0.13f * cos(t * 0.8f)),
-          Offset(0.8f + 0.2f * cos(t * 0.7f), 0.38f + 0.2f * sin(t * 0.9f)),
-          Offset(0.3f + 0.25f * cos(t * 0.6f), 0.8f + 0.16f * sin(t * 0.7f)),
-          Offset(0.75f + 0.2f * sin(t * 0.8f), 1.05f + 0.15f * cos(t)),
-        )
-      for (index in shades.indices) {
-        val color = shades[index]
+      val t = seconds
+      val shades = listOf(primary, secondary, accent).map { if (dark) richer(it) else it }
+      for (cloud in clouds) {
+        val color = shades[cloud.color]
+        val center =
+          Offset(
+            (cloud.homeX + cloud.wanderX * sin(t * cloud.speedX + cloud.phase)) * size.width,
+            (cloud.homeY + cloud.wanderY * cos(t * cloud.speedY + cloud.phase)) * size.height,
+          )
+        val swell = 1f + 0.18f * sin(t * 0.37f + cloud.phase * 1.9f)
         drawRect(
           Brush.radialGradient(
-            0f to color.copy(alpha = if (dark) 0.60f else 0.48f),
-            0.45f to color.copy(alpha = if (dark) 0.28f else 0.22f),
+            0f to color.copy(alpha = if (dark) 0.70f else 0.48f),
+            0.45f to color.copy(alpha = if (dark) 0.33f else 0.22f),
             1f to color.copy(alpha = 0f),
-            center = Offset(centers[index].x * size.width, centers[index].y * size.height),
-            radius = size.maxDimension * 0.8f,
+            center = center,
+            radius = size.maxDimension * 0.5f * swell,
           ),
         )
       }
