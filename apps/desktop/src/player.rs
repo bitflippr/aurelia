@@ -726,11 +726,20 @@ impl Player {
     }
 }
 
-/// The message the player shows for an error. The full chain of causes goes
-/// to the terminal, since the message alone rarely says what failed.
+/// The message the player shows for an error: what failed, then the deepest
+/// cause, such as a refused connection or a server error. The full chain goes
+/// to the terminal. HTTP errors end with the stream URL, which carries the
+/// session token, so that part stays out of the window.
 fn failure(error: &anyhow::Error) -> String {
     eprintln!("Aurelia playback: {error:#}");
-    error.to_string()
+    let message = error.to_string();
+    let cause = error.root_cause().to_string();
+    let cause = cause.split(" for url (").next().unwrap_or_default();
+    if cause.is_empty() || cause == message || cause.contains("://") {
+        message
+    } else {
+        format!("{message}: {cause}")
+    }
 }
 
 fn random_index(len: usize) -> usize {
