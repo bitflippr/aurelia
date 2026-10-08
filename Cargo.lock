@@ -2563,7 +2563,7 @@ dependencies = [
 [[package]]
 name = "souvlaki"
 version = "0.8.3"
-source = "git+https://github.com/skulldogged/souvlaki?rev=7ddcc88272ffec6e327d3483e4be0797945178ca#7ddcc88272ffec6e327d3483e4be0797945178ca"
+source = "git+https://github.com/bitflippr/souvlaki?rev=7ddcc88272ffec6e327d3483e4be0797945178ca#7ddcc88272ffec6e327d3483e4be0797945178ca"
 dependencies = [
  "base64",
  "block",

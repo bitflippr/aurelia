@@ -4,7 +4,7 @@ Aurelia is a native music client for Jellyfin.
 
 - Android is built with Kotlin, Jetpack Compose, and Media3.
 - iOS is built with SwiftUI and AVFoundation.
-- The desktop app's interface is React/TypeScript rendered natively by [GPUIX](https://github.com/skulldogged/gpuix) on GPUI; its runtime is Rust.
+- The desktop app's interface is React/TypeScript rendered natively by [GPUIX](https://github.com/bitflippr/gpuix) on GPUI; its runtime is Rust.
 - Shared Jellyfin, library, cache, and lyrics behavior lives in Rust. Mobile uses it through UniFFI; desktop links it directly.
 
 ## Repository layout

@@ -39,7 +39,7 @@ The debug APK is written under `apps/mobile/android/app/build/outputs/apk/debug/
 
 This project intentionally uses automatic debug signing for release artifacts because its Obtainium deployment targets a CorePatch device. These APKs are not suitable for normal distribution: stock Android requires updates to retain the same signing key.
 
-After the first workflow release succeeds, add `https://github.com/skulldogged/aurelia` to Obtainium using its GitHub source. The single `aurelia-<version>.apk` asset in the latest release is the installable update.
+After the first workflow release succeeds, add `https://github.com/bitflippr/aurelia` to Obtainium using its GitHub source. The single `aurelia-<version>.apk` asset in the latest release is the installable update.
 
 On an unpatched device, use a private, persistent release keystore instead.
 
@@ -53,7 +53,7 @@ renderer and paints the seek bar; `apps/desktop/native/lyrics.rs` draws synced
 lyrics the way the Android app does, tuned by the settings in
 `apps/desktop/ui/lyrics.tsx`.
 
-GPUIX comes from the `skulldogged/gpuix` fork in `vendor/gpuix`, pinned to its
+GPUIX comes from the `bitflippr/gpuix` fork in `vendor/gpuix`, pinned to its
 `aurelia` branch: the `shared` branch (upstream plus the changes Aurelia and
 Slate share) and one commit linking Aurelia's runtime. See
 `vendor/gpuix/downstream/README.md` for what the fork adds.

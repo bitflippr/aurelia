@@ -14,7 +14,7 @@ Aurelia is a native mobile music client for Jellyfin. It consists of native Andr
 - `apps/mobile/android/` — Kotlin, Jetpack Compose, and Media3 Android app.
 - `apps/mobile/ios/` — SwiftUI and AVFoundation iOS app plus its Swift package.
 - `apps/desktop/` — desktop app: React/TypeScript interface on GPUIX (`ui/`), Rust runtime (`src/`), and the renderer extension (`native/aurelia.rs`).
-- `vendor/gpuix/` — the `skulldogged/gpuix` fork, shared with Slate, pinned to its `aurelia` branch.
+- `vendor/gpuix/` — the `bitflippr/gpuix` fork, shared with Slate, pinned to its `aurelia` branch.
 - `crates/aurelia-core/` — shared Jellyfin services, models, caching, persistence, and mobile-facing UniFFI exports.
 - `crates/aurelia-lyrics/` — reusable lyrics parsing and models.
 - `crates/uniffi-bindgen/` — thin UniFFI CLI wrapper used by mobile builds.
