@@ -1178,7 +1178,10 @@ impl Painter<'_> {
         let block = &row.text;
         let em = block.font_size;
         let active = line.active(time);
-        let lit = if active { self.active } else { self.color };
+        // The color eases with the line's fade, so a line that ends doesn't
+        // snap to full-strength `color` before dimming.
+        let fade = ((1.0 - opacity) / (1.0 - s.unsung_alpha).max(0.001)).clamp(0.0, 1.0);
+        let lit = blend(self.active, self.color, fade);
         // Unsung text keeps the same brightness while its line fades in.
         let dim = (s.unsung_alpha / opacity.max(0.001)).min(1.0);
         for (glyph, part) in block.glyphs.iter().zip(&row.parts) {
