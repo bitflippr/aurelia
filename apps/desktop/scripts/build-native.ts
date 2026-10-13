@@ -17,8 +17,9 @@ const target = resolve(root, process.env.CARGO_TARGET_DIR ?? ".local/native-targ
 prepare();
 
 // GPUIX pins its own toolchain, which `napi build` would pick up from inside
-// the package. Build with the one Aurelia's own crates use instead.
-const active = Bun.spawnSync(["rustup", "show", "active-toolchain"], { cwd: root }).stdout.toString();
+// the package. Build with the one Aurelia's own crates use instead. Without
+// rustup, as in the Nix shell, the toolchain on the path is the only one.
+const active = Bun.which("rustup") ? Bun.spawnSync(["rustup", "show", "active-toolchain"], { cwd: root }).stdout.toString() : "";
 const toolchain = process.env.RUSTUP_TOOLCHAIN ?? active.split(/\s+/)[0];
 
 const build = Bun.spawnSync(
