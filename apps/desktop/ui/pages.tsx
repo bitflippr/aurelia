@@ -179,8 +179,8 @@ function MixCard({ mix: m, library }: { mix: Mix | null; library: Library }) {
       <Glass tint={tint} radius={30} interactive />
       <Collage albums={albums} size={88} radius={18} />
       <div style={{ ...column, flexGrow: 1, gap: 6 }}>
-        <text style={{ fontSize: 18, fontWeight: 700, color: ink(tint, "tonal"), lineClamp: 2, lineHeight: 22 }}>{m.title}</text>
-        <text style={{ fontSize: 13, color: inkSoft(tint, "tonal"), lineClamp: 2, lineHeight: 18 }}>{m.subtitle}</text>
+        <text style={{ fontSize: 18, fontWeight: 700, color: ink(tint, "tonal"), lineClamp: 2, textOverflow: "ellipsis", lineHeight: 22 }}>{m.title}</text>
+        <text style={{ fontSize: 13, color: inkSoft(tint, "tonal"), lineClamp: 3, textOverflow: "ellipsis", lineHeight: 18 }}>{m.subtitle}</text>
       </div>
       {/* A frosted pearl, not the mix's own color: it reads on any tint. */}
       <div style={{ ...center, position: "relative", alignSelf: "flex-end", marginBottom: 16, width: 40, height: 40, borderRadius: 20, flexShrink: 0 }}>

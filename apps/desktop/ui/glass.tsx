@@ -180,8 +180,8 @@ function tonalWorst(i: RGB, b: RGB, l: RGB, d: RGB): number {
 
 function nightTonalWorst(d: RGB, l: RGB): number {
   const [L, a, bb] = oklab(d);
-  const core = fromOklab([L * 0.68, a * 0.88, bb * 0.88]);
-  const thin = fromOklab([Math.min(0.95, L + 0.05), a, bb]);
+  const core = fromOklab([L * 0.78, a * 0.88, bb * 0.88]);
+  const thin = fromOklab([Math.min(0.95, L + 0.08), a, bb]);
   const text = mix(l, WHITE, 0.4);
   return Math.min(...[core, mix(core, thin, 0.15), over(core, thin, 0.26), mix(core, thin, 0.5)].map((c) => contrast(c, text)));
 }
@@ -250,8 +250,22 @@ function oklabToLinear([L, A, B]: RGB): RGB {
   ];
 }
 
-function fromOklab(lab: RGB): RGB {
-  return oklabToLinear(lab).map((c) => encode(clamp(c, 0, 1))) as RGB;
+/** sRGB from OKLab. A color outside the gamut keeps its lightness and hue
+ * and gives up chroma until it fits, as the native painter does. */
+function fromOklab([L, A, B]: RGB): RGB {
+  const l = clamp(L, 0, 1);
+  const fits = (k: number) => oklabToLinear([l, A * k, B * k]).every((c) => c >= -1e-4 && c <= 1 + 1e-4);
+  let keep = 1;
+  if (!fits(keep)) {
+    let [inside, outside] = [0, 1];
+    for (let step = 0; step < 20; step++) {
+      const middle = (inside + outside) / 2;
+      if (fits(middle)) inside = middle;
+      else outside = middle;
+    }
+    keep = inside;
+  }
+  return oklabToLinear([l, A * keep, B * keep]).map((c) => encode(clamp(c, 0, 1))) as RGB;
 }
 
 function oklch(c: RGB): RGB {
@@ -261,13 +275,7 @@ function oklch(c: RGB): RGB {
 
 /** OKLCH, with chroma lowered until the color is displayable. */
 function inGamut(L: number, chroma: number, hue: number): RGB {
-  let c = chroma;
-  for (let step = 0; step < 24; step++) {
-    const lin = oklabToLinear([L, c * Math.cos(hue), c * Math.sin(hue)]);
-    if (lin.every((v) => v >= -0.0005 && v <= 1.0005)) break;
-    c *= 0.9;
-  }
-  return fromOklab([L, c * Math.cos(hue), c * Math.sin(hue)]);
+  return fromOklab([L, chroma * Math.cos(hue), chroma * Math.sin(hue)]);
 }
 
 function mix(a: RGB, b: RGB, t: number): RGB {

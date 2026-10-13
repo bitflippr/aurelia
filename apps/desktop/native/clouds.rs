@@ -263,13 +263,14 @@ fn as_light(color: Rgba, shore: bool, alpha: f32) -> Hsla {
     color
 }
 
-/// Frost over the ground, about a point to a grain.
+/// Frost over the ground, about a point to a grain. Barely there: the grain
+/// belongs to the glass, and the ground only keeps the pools from banding.
 fn paint_frost(bounds: Bounds<Pixels>, shore: bool, window: &mut Window) {
-    let cell = window.scale_factor().round().max(1.0);
+    let cell = window.scale_factor().max(1.0);
     let (light, dark) = if shore {
-        (rgba(0xffffff10), rgba(0x0a28240a))
+        (rgba(0xffffff08), rgba(0x0a282405))
     } else {
-        (rgba(0xffffff06), rgba(0x00000014))
+        (rgba(0xffffff03), rgba(0x00000008))
     };
     window.paint_quad(fill(bounds, grain(light, dark, cell, 0.0)));
 }

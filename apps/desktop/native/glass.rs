@@ -464,7 +464,7 @@ fn paint_night(bounds: Bounds<Pixels>, radii: Corners<Pixels>, look: &Look, wind
     let (core, thin) = match look.variant {
         Variant::Filled => (oklab_mix(t.b, t.d, 0.12), t.l),
         Variant::Pearl => (oklab_mix(t.b, t.d, 0.28), oklab_mix(t.l, t.b, 0.15)),
-        _ => (oklch_scale(t.d, 0.68, 0.88), oklch_lift(t.d, 0.05)),
+        _ => (oklch_scale(t.d, 0.78, 0.88), oklch_lift(t.d, 0.08)),
     };
     let short = f32::from(bounds.size.width.min(bounds.size.height));
     // How far in from the edge the glass stays thin.
@@ -515,14 +515,26 @@ fn paint_night(bounds: Bounds<Pixels>, radii: Corners<Pixels>, look: &Look, wind
         ],
     );
     // Lit from behind, the frost shows as dark pits with a few bright bubbles.
-    paint_grain(
-        bounds,
-        radii,
-        rgba(0xffffff0d),
-        rgba(0x00000029),
-        0.002,
-        window,
-    );
+    // On a pale piece the pits read as dirt, so they stay shallow there.
+    if look.variant == Variant::Tonal {
+        paint_grain(
+            bounds,
+            radii,
+            rgba(0xffffff0d),
+            rgba(0x00000029),
+            0.002,
+            window,
+        );
+    } else {
+        paint_grain(
+            bounds,
+            radii,
+            rgba(0xffffff14),
+            rgba(0x00000012),
+            0.0,
+            window,
+        );
+    }
 }
 
 /// Fluorescing under UV: the glass makes its own light, brightest where it is
@@ -628,11 +640,13 @@ fn paint_surface(
                     inset(0.0, 0.0, 0.0, 1.0, rgba(0xffffff66)),
                 ],
             );
+            // Surfaces are the quiet ground the glass sits on: only a trace
+            // of the frost the pieces carry.
             paint_grain(
                 bounds,
                 radii,
-                rgba(0xffffff1f),
-                rgba(0x0a282410),
+                rgba(0xffffff0f),
+                rgba(0x0a282408),
                 0.0,
                 window,
             );
@@ -647,25 +661,27 @@ fn paint_surface(
                     shadow(0.0, 24.0, 25.0, -24.0, rgba(0x000000bf))
                 }],
             );
+            // Frosted slate, a step up from the dark ground, so deep glass
+            // reads as color rather than as a hole in the panel.
             let body = if sheet {
-                rgba(0x1a1b28ff)
+                rgba(0x464754ff)
             } else {
-                rgba(0x1617248c)
+                rgba(0x41424feb)
             };
             window.paint_quad(fill(bounds, body).corner_radii(radii));
             window.paint_inset_shadows(
                 bounds,
                 radii,
                 &[
-                    inset(0.0, 1.0, 0.0, 0.0, rgba(0xffffff14)),
+                    inset(0.0, 1.0, 0.0, 0.0, rgba(0xffffff17)),
                     inset(0.0, 0.0, 0.0, 1.0, rgba(0xffffff0a)),
                 ],
             );
             paint_grain(
                 bounds,
                 radii,
-                rgba(0xffffff09),
-                rgba(0x00000026),
+                rgba(0xffffff06),
+                rgba(0x0000000f),
                 0.0,
                 window,
             );
@@ -682,7 +698,7 @@ fn paint_grain(
     sparkle: f32,
     window: &mut Window,
 ) {
-    let cell = window.scale_factor().round().max(1.0);
+    let cell = window.scale_factor().max(1.0);
     window.paint_quad(
         fill(bounds, grain(hsla_of(light), hsla_of(dark), cell, sparkle)).corner_radii(radii),
     );
@@ -781,14 +797,45 @@ fn oklab(color: Rgba) -> [f64; 3] {
     ]
 }
 
-fn from_oklab([l_, a, b]: [f64; 3], alpha: f32) -> Rgba {
+fn linear_from_oklab([l_, a, b]: [f64; 3]) -> [f64; 3] {
     let l = (l_ + 0.3963377774 * a + 0.2158037573 * b).powi(3);
     let m = (l_ - 0.1055613458 * a - 0.0638541728 * b).powi(3);
     let s = (l_ - 0.0894841775 * a - 1.2914855480 * b).powi(3);
+    [
+        4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.7076956086 * s,
+    ]
+}
+
+/// A color outside sRGB keeps its lightness and hue and gives up chroma until
+/// it fits. Clipping each channel instead would shift the hue and sink a deep,
+/// vivid tone toward black.
+fn from_oklab([l_, a, b]: [f64; 3], alpha: f32) -> Rgba {
+    let l_ = l_.clamp(0.0, 1.0);
+    let fits = |k: f64| {
+        linear_from_oklab([l_, a * k, b * k])
+            .iter()
+            .all(|c| (-1e-4..=1.0 + 1e-4).contains(c))
+    };
+    let mut keep = 1.0;
+    if !fits(keep) {
+        let (mut inside, mut outside) = (0.0, 1.0);
+        for _ in 0..20 {
+            let middle = (inside + outside) / 2.0;
+            if fits(middle) {
+                inside = middle;
+            } else {
+                outside = middle;
+            }
+        }
+        keep = inside;
+    }
+    let [r, g, b] = linear_from_oklab([l_, a * keep, b * keep]);
     Rgba {
-        r: to_srgb(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
-        g: to_srgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
-        b: to_srgb(-0.0041960863 * l - 0.7034186147 * m + 1.7076956086 * s),
+        r: to_srgb(r),
+        g: to_srgb(g),
+        b: to_srgb(b),
         a: alpha,
     }
 }

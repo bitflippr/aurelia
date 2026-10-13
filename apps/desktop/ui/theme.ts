@@ -2,17 +2,18 @@ import type { StyleDesc } from "@gpuix/react";
 
 export type ThemeName = "shore" | "night";
 
-/** Night tide: dark, the glass lit from behind. */
+/** Night tide: dark, the glass lit from behind. Pages sit on frosted slate,
+ * a step up from the ground (`bg` is how the slate shows). */
 const NIGHT = {
   frame: "#09090f",
-  bg: "#11121b",
-  surface: "#1a1b28",
-  surfaceLow: "#141520",
-  surfaceHigh: "#242536",
-  surfaceHigher: "#2e2f42",
+  bg: "#3d3e4a",
+  surface: "#464754",
+  surfaceLow: "#3d3e4a",
+  surfaceHigh: "#4c4d5c",
+  surfaceHigher: "#565768",
   text: "#eef0f7",
-  muted: "#a6a9bc",
-  faint: "#6d7085",
+  muted: "#b2b5c6",
+  faint: "#9295a9",
   primary: "#c9c4ff",
   onPrimary: "#221f6b",
   primaryContainer: "#2b2869",
@@ -25,8 +26,8 @@ const NIGHT = {
   hover: "#ffffff0d",
   pressed: "#ffffff17",
   selected: "#bdb6ff26",
-  overlay: "#1a1b28",
-  overlayHover: "#25263a",
+  overlay: "#464754",
+  overlayHover: "#51525f",
 };
 
 /** Shore: pale, the glass lit from above. */
