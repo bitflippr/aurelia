@@ -59,11 +59,6 @@ function Header({ title, sub, children }: { title: string; sub?: string; childre
 export function Home() {
   const library = useStore((s) => s.library)!;
   const mixes = useStore((s) => s.mixes);
-  const currentId = useCurrentId();
-  const current = currentId ? library.song.get(currentId) : undefined;
-  const currentAlbum = current?.albumId ? library.album.get(current.albumId) : undefined;
-  useEffect(() => ensureArtwork(currentAlbum?.id, currentAlbum?.imageTag), [currentAlbum?.id]);
-  const palette = usePalette(currentAlbum?.id) ?? (["#4b3a9a", "#7a3560", "#2f4f80"] as [string, string, string]);
 
   const quick = useMemo(() => {
     const forgotten = library.songs.filter((s) => s.fav).sort((a, b) => a.playedAt - b.playedAt).slice(0, 3);
@@ -76,21 +71,19 @@ export function Home() {
 
   const sections: ReactNode[] = [
     <Pad key="head">
-      <div style={{ position: "relative" }}>
-        <div style={{ ...row, alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", paddingTop: 44, paddingBottom: 6, columnGap: 24, rowGap: 16 }}>
-          <text style={{ ...text.display(56), lineHeight: 60 }}>{greeting}</text>
-          <div style={{ ...row, gap: 8 }}>
-            <Button label="Shuffle library" icon="shuffle" tone="filled" onClick={() => play(library.songs.map((s) => s.id), 0, true)} />
-            <Button
-              label="Surprise me"
-              icon="dice"
-              tone="tonal"
-              onClick={() => {
-                const favs = library.songs.filter((s) => s.fav);
-                play((favs.length ? favs : library.songs).map((s) => s.id), 0, true);
-              }}
-            />
-          </div>
+      <div style={{ ...row, alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", paddingTop: 44, paddingBottom: 6, columnGap: 24, rowGap: 16 }}>
+        <text style={{ ...text.display(56), lineHeight: 60 }}>{greeting}</text>
+        <div style={{ ...row, gap: 8 }}>
+          <Button label="Shuffle library" icon="shuffle" tone="filled" onClick={() => play(library.songs.map((s) => s.id), 0, true)} />
+          <Button
+            label="Surprise me"
+            icon="dice"
+            tone="tonal"
+            onClick={() => {
+              const favs = library.songs.filter((s) => s.fav);
+              play((favs.length ? favs : library.songs).map((s) => s.id), 0, true);
+            }}
+          />
         </div>
       </div>
     </Pad>,
@@ -140,22 +133,7 @@ export function Home() {
       </Pad>,
     );
   }
-  return (
-    <Page
-      count={sections.length}
-      estimate={260}
-      row={(i) =>
-        i === 0 ? (
-          <div key="head" style={{ position: "relative" }}>
-            <Ambient palette={palette} height={520} />
-            {sections[0]}
-          </div>
-        ) : (
-          sections[i]
-        )
-      }
-    />
-  );
+  return <Page count={sections.length} estimate={260} row={(i) => sections[i]} />;
 }
 
 function Mixes({ mixes, library }: { mixes: Mix[] | null; library: Library }) {
@@ -172,8 +150,11 @@ function Mixes({ mixes, library }: { mixes: Mix[] | null; library: Library }) {
 }
 
 function MixCard({ mix: m, library }: { mix: Mix | null; library: Library }) {
+  const albums = (m?.covers ?? []).map((id) => library.album.get(id)).filter((a): a is Album => !!a);
+  const lead = albums[0];
+  useEffect(() => ensureArtwork(lead?.id, lead?.imageTag), [lead?.id]);
+  const tint = usePalette(lead?.id)?.[0];
   if (!m) return <div style={{ flexGrow: 1, flexBasis: 0, height: 148, borderRadius: 20, backgroundColor: C.surface }} />;
-  const albums = m.covers.map((id) => library.album.get(id)).filter((a): a is Album => !!a);
   return (
     <div
       role="button"
@@ -190,15 +171,8 @@ function MixCard({ mix: m, library }: { mix: Mix | null; library: Library }) {
         paddingRight: 16,
         borderRadius: 20,
         cursor: "pointer",
-        background: {
-          type: "linear-gradient",
-          angle: 115,
-          stops: [
-            { color: mix(C.surface, m.color, 0.36), position: 0 },
-            { color: C.surface, position: 0.75 },
-          ],
-        },
-        hover: { opacity: 0.92 },
+        backgroundColor: tint ? mix(C.surface, tint, 0.25) : C.surface,
+        hover: { backgroundColor: tint ? mix(C.surface, tint, 0.32) : C.surfaceHigh },
       }}
     >
       <Collage albums={albums} size={88} radius={16} />
@@ -206,8 +180,9 @@ function MixCard({ mix: m, library }: { mix: Mix | null; library: Library }) {
         <text style={{ fontSize: 18, fontWeight: 700, color: C.text, lineClamp: 2, lineHeight: 22 }}>{m.title}</text>
         <text style={{ fontSize: 13, color: C.muted, lineClamp: 2, lineHeight: 18 }}>{m.subtitle}</text>
       </div>
-      <div style={{ ...center, alignSelf: "flex-end", marginBottom: 16, width: 40, height: 40, borderRadius: 20, backgroundColor: C.primary, flexShrink: 0 }}>
-        <Icon name="play" size={18} color={C.onPrimary} />
+      {/* Light, as in the player bar: purple clashes with some tints. */}
+      <div style={{ ...center, alignSelf: "flex-end", marginBottom: 16, width: 40, height: 40, borderRadius: 20, backgroundColor: C.text, flexShrink: 0 }}>
+        <Icon name="play" size={18} color={C.frame} />
       </div>
     </div>
   );

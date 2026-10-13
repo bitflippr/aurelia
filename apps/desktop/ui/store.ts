@@ -35,7 +35,7 @@ export type MenuItem =
   | "-";
 export type Menu = { x: number; y: number; items: MenuItem[]; width?: number };
 
-export type Mix = { seed: string; title: string; subtitle: string; covers: string[]; songs: string[]; color: string };
+export type Mix = { seed: string; title: string; subtitle: string; covers: string[]; songs: string[] };
 
 export type AlbumSort = "added" | "title" | "artist" | "year" | "plays";
 export type SongSort = { key: "title" | "album" | "artist" | "added" | "plays" | "duration"; dir: 1 | -1 };
@@ -248,8 +248,6 @@ export async function loadPlaylistSongs(id: string, force = false) {
   }
 }
 
-const MIX_COLORS = ["#c0643a", "#3c6fd0", "#b8508a", "#4b9a74"];
-
 /** "Let it play": instant mixes seeded from the artists you play most. */
 export async function loadMixes() {
   const library = get().library;
@@ -260,7 +258,7 @@ export async function loadMixes() {
     .sort((a, b) => b.plays - a.plays)
     .slice(0, 3);
   const mixes = await Promise.all(
-    seeds.map(async (artist, index): Promise<Mix | null> => {
+    seeds.map(async (artist): Promise<Mix | null> => {
       try {
         const songs = await request<SongData[]>({ type: "mix", id: artist.id });
         if (!songs.length) return null;
@@ -279,7 +277,6 @@ export async function loadMixes() {
           subtitle: artists.slice(0, 3).join(", "),
           covers: albums.slice(0, 4),
           songs: songs.map((song) => song.id),
-          color: MIX_COLORS[index % MIX_COLORS.length],
         };
       } catch {
         return null;
