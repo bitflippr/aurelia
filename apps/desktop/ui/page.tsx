@@ -5,9 +5,10 @@ import { isValidElement, useEffect, useRef, useState, type ReactNode } from "rea
 import { AnimatePresence } from "@gpuix/react";
 import { Icon } from "./icons";
 import { Motion } from "./components";
+import { Glass, TINTS, ink, tintFrom } from "./glass";
 import { host } from "./native";
 import { get, setScrollReader, useStore } from "./store";
-import { C, SIZE, alpha, center, mix, motion, row } from "./theme";
+import { C, SIZE, center, motion, radius, row } from "./theme";
 
 export type Sticky = {
   title: string;
@@ -99,8 +100,10 @@ export function Page({
   );
 }
 
+/** The page's title once its header has scrolled away: a sheet of glass across
+ * the top of the slab, with a piece of the page's own color to play it. */
 function StickyBar({ sticky, visible }: { sticky: Sticky; visible: boolean }) {
-  const tint = sticky.tint ? mix(C.bg, sticky.tint, 0.32) : C.surfaceLow;
+  const tint = sticky.tint ? tintFrom(sticky.tint) : TINTS.jelly;
   return (
     <AnimatePresence>
       {visible && (
@@ -110,26 +113,26 @@ function StickyBar({ sticky, visible }: { sticky: Sticky; visible: boolean }) {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: motion.fast, ease: "easeOut" }}
-          style={{ position: "absolute", left: 0, right: 0, top: 0, backgroundColor: tint, pointerEvents: "auto" }}
+          style={{ position: "absolute", left: 0, right: 0, top: 0, pointerEvents: "auto" }}
         >
+          <Glass variant="sheet" radius={[radius.slab, radius.slab, 0, 0]} />
           <div style={{ ...row, height: 64, gap: 14, paddingLeft: 24, paddingRight: SIZE.page }}>
             {sticky.onPlay && (
               <div
                 role="button"
                 aria-label="Play"
                 onClick={sticky.onPlay}
-                style={{ ...center, width: 40, height: 40, borderRadius: 20, backgroundColor: C.primary, cursor: "pointer" }}
+                style={{ ...center, position: "relative", width: 40, height: 40, borderRadius: 20, cursor: "pointer" }}
               >
-                <Icon name="play" size={18} color={C.onPrimary} />
+                <Glass tint={tint} variant="filled" radius={20} interactive />
+                <Icon name="play" size={18} color={ink(tint, "filled")} />
               </div>
             )}
             <text style={{ fontSize: 20, fontWeight: 800, color: C.text, whiteSpace: "nowrap", textOverflow: "ellipsis", minWidth: 0 }}>
               {sticky.title}
             </text>
           </div>
-          {sticky.below && (
-            <div style={{ paddingLeft: SIZE.page, paddingRight: SIZE.page, backgroundColor: alpha(C.bg, 0.0) }}>{sticky.below}</div>
-          )}
+          {sticky.below && <div style={{ paddingLeft: SIZE.page, paddingRight: SIZE.page }}>{sticky.below}</div>}
         </Motion>
       )}
     </AnimatePresence>

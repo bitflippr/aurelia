@@ -51,7 +51,10 @@ library sync, the playback queue, Rodio playback, Souvlaki media controls and
 artwork colors. `apps/desktop/native/aurelia.rs` connects the two inside the
 renderer and paints the seek bar; `apps/desktop/native/lyrics.rs` draws synced
 lyrics the way the Android app does, tuned by the settings in
-`apps/desktop/ui/lyrics.tsx`.
+`apps/desktop/ui/lyrics.tsx`. `apps/desktop/native/glass.rs` paints the sea
+glass the interface is made of and `apps/desktop/native/clouds.rs` the ground
+under it; `apps/desktop/ui/glass.tsx` and `apps/desktop/ui/theme.ts` choose
+their colors for the Shore and Night tide themes.
 
 GPUIX comes from the `bitflippr/gpuix` fork in `vendor/gpuix`, pinned to its
 `aurelia` branch: the `shared` branch (upstream plus the changes Aurelia and

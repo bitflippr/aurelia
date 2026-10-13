@@ -95,6 +95,14 @@ export const ICONS = {
   alert: stroke('<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>'),
   logout: stroke('<path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>'),
   music: stroke('<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>'),
+  palette: stroke(
+    '<path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5" fill="#000"/><circle cx="17.5" cy="10.5" r=".5" fill="#000"/><circle cx="6.5" cy="12.5" r=".5" fill="#000"/><circle cx="8.5" cy="7.5" r=".5" fill="#000"/>',
+  ),
+  // Caption buttons where Segoe's glyphs are missing: thin, like Windows 11's.
+  captionMinimize: stroke('<path d="M6.5 12h11"/>', 1.2),
+  captionMaximize: stroke('<rect width="11" height="11" x="6.5" y="6.5" rx="1.5"/>', 1.2),
+  captionRestore: stroke('<rect width="9" height="9" x="6.5" y="8.5" rx="1.5"/><path d="M9 8.5V8a1.5 1.5 0 0 1 1.5-1.5H16A1.5 1.5 0 0 1 17.5 8v5.5A1.5 1.5 0 0 1 16 15h-.5"/>', 1.2),
+  captionClose: stroke('<path d="m7 7 10 10"/><path d="M17 7 7 17"/>', 1.2),
 } as const;
 
 export type IconName = keyof typeof ICONS;

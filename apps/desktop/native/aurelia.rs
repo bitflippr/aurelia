@@ -1,8 +1,9 @@
 //! Aurelia's GPUIX extension, compiled into the renderer by the fork's
 //! `aurelia` branch. The interface stays in TypeScript; this file connects it
 //! to the desktop runtime and paints the seek bar, which follows playback on
-//! its own instead of through React. `lyrics.rs` does the same for lyrics, and
-//! `clouds.rs` paints the full player's moving backdrop.
+//! its own instead of through React. `lyrics.rs` does the same for lyrics,
+//! `clouds.rs` paints the backdrop behind the window and the full player, and
+//! `glass.rs` paints the sea glass the interface is made of.
 use crate::{
     custom_elements::{
         custom_surface, CustomElement, CustomElementFactory, CustomElementRegistry,
@@ -18,6 +19,8 @@ use std::{
 
 #[path = "clouds.rs"]
 mod clouds;
+#[path = "glass.rs"]
+mod glass;
 #[path = "lyrics.rs"]
 mod lyrics;
 
@@ -26,6 +29,7 @@ pub fn register(registry: &mut CustomElementRegistry) {
     registry.register(Box::new(WaveFactory));
     registry.register(Box::new(lyrics::LyricsFactory));
     registry.register(Box::new(clouds::CloudsFactory));
+    registry.register(Box::new(glass::GlassFactory));
 }
 
 /// While something plays, the seek bar redraws this often. Progress moves

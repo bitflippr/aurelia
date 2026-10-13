@@ -3,6 +3,7 @@ import { memo, useState } from "react";
 import type { StyleDesc } from "@gpuix/react";
 import { Icon } from "./icons";
 import { Artwork, useContentWidth } from "./components";
+import { accent, useNowTint } from "./glass";
 import { ago, duration, type Song } from "./library";
 import { songMenu } from "./menus";
 import { go, openMenu, playSong, toggleFavorite, useStore, type SongSort } from "./store";
@@ -63,6 +64,9 @@ export const TrackRow = memo(function TrackRow({
 }) {
   const [hover, setHover] = useState(false);
   const cols = useColumns(variant);
+  // Memoized, so it follows the theme and the playing album itself.
+  useStore((s) => s.theme);
+  const playing = accent(useNowTint());
   const showArtist = variant !== "album" || (song.albumArtist && song.artist !== song.albumArtist);
   const height = variant === "album" ? ALBUM_ROW_HEIGHT : ROW_HEIGHT;
   return (
@@ -90,7 +94,7 @@ export const TrackRow = memo(function TrackRow({
             <Icon name="play" size={16} color={C.text} />
           </div>
         ) : current ? (
-          <Bars color={C.primary} />
+          <Bars color={playing} />
         ) : (
           <text style={{ fontSize: 14, color: C.muted }}>{number}</text>
         )}
@@ -98,7 +102,7 @@ export const TrackRow = memo(function TrackRow({
       <div style={{ ...row, flexGrow: 4, flexBasis: 0, minWidth: 0, gap: 12 }}>
         {cols.art && <Artwork id={song.albumId} tag={tag} size={40} radius={7} />}
         <div style={{ display: "flex", flexDirection: "column", minWidth: 0, flexGrow: 1, gap: 3 }}>
-          <text style={{ ...text.title(14), ...ellipsis, color: current ? C.primary : C.text }}>{song.title}</text>
+          <text style={{ ...text.title(14), ...ellipsis, color: current ? playing : C.text }}>{song.title}</text>
           {showArtist && <text style={{ ...text.body(13, C.muted), ...ellipsis }}>{song.artist}</text>}
         </div>
       </div>

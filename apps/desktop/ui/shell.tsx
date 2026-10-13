@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { logo } from "./assets";
 import { Artwork, Button, IconButton, Motion } from "./components";
+import { Glass, TINTS, ink, useNowPalette, useNowTint } from "./glass";
 import { AlbumPage, ArtistPage, PlaylistPage } from "./detail";
 import { Icon, type IconName } from "./icons";
 import { Lyrics } from "./lyrics";
@@ -40,16 +41,19 @@ const CAPTION_FONT = existsSync(join(process.env.WINDIR ?? "C:\\Windows", "Fonts
   ? "Segoe Fluent Icons"
   : "Segoe MDL2 Assets";
 const GLYPHS = { minimize: "\uE921", maximize: "\uE922", restore: "\uE923", close: "\uE8BB" };
+/** Elsewhere Segoe is missing; draw the same glyphs. */
+const CAPTION_ICONS = { minimize: "captionMinimize", maximize: "captionMaximize", restore: "captionRestore", close: "captionClose" } as const;
 
 function Caption({ action, children, style }: { action: "drag" | "minimize" | "maximize" | "close"; children?: ReactNode; style?: object }) {
   return createElement("gpuix-caption", { action, style }, children);
 }
 
-export function CaptionButtons({ light }: { light?: boolean }) {
+export function CaptionButtons() {
   const maximized = useStore((s) => s.window.maximized);
   const active = useStore((s) => s.window.active);
   if (process.platform === "darwin") return null;
-  const glyph = light || active ? "#ffffff" : "#ffffff5d";
+  const glyph = active ? C.text : alpha(C.text, 0.36);
+  const wash = (amount: number) => alpha(C.text, amount);
   return (
     <div style={{ ...row, height: "100%", flexShrink: 0, alignSelf: "stretch" }}>
       {(["minimize", "maximize", "close"] as const).map((action) => {
@@ -64,11 +68,15 @@ export function CaptionButtons({ light }: { light?: boolean }) {
               width: 46,
               height: "100%",
               color: glyph,
-              hover: close ? { backgroundColor: "#c42b1c", color: "#ffffff" } : { backgroundColor: "#ffffff0f", color: "#ffffff" },
-              active: close ? { backgroundColor: "#c42b1ce6" } : { backgroundColor: "#ffffff0a" },
+              hover: close ? { backgroundColor: "#c42b1c", color: "#ffffff" } : { backgroundColor: wash(0.07), color: C.text },
+              active: close ? { backgroundColor: "#c42b1ce6" } : { backgroundColor: wash(0.04) },
             }}
           >
-            <text style={{ fontFamily: CAPTION_FONT, fontSize: 10, lineHeight: 10, color: glyph }}>{GLYPHS[icon]}</text>
+            {process.platform === "win32" ? (
+              <text style={{ fontFamily: CAPTION_FONT, fontSize: 10, lineHeight: 10, color: glyph }}>{GLYPHS[icon]}</text>
+            ) : (
+              <Icon name={CAPTION_ICONS[icon]} size={16} color={glyph} />
+            )}
           </Caption>
         );
       })}
@@ -115,9 +123,10 @@ function TopBar() {
           role="button"
           aria-label="Account and settings"
           onClick={() => go({ name: "settings" })}
-          style={{ ...center, width: 32, height: 32, borderRadius: 16, marginLeft: 6, marginRight: 6, backgroundColor: alpha(C.pink, 0.22), cursor: "pointer" }}
+          style={{ ...center, position: "relative", width: 32, height: 32, borderRadius: 16, marginLeft: 6, marginRight: 6, cursor: "pointer" }}
         >
-          <text style={{ fontSize: 14, fontWeight: 800, color: C.pink }}>{(session?.username[0] ?? "A").toUpperCase()}</text>
+          <Glass tint={TINTS.rose} radius={16} interactive />
+          <text style={{ fontSize: 14, fontWeight: 800, color: ink(TINTS.rose, "tonal") }}>{(session?.username[0] ?? "A").toUpperCase()}</text>
         </div>
       </div>
       <CaptionButtons />
@@ -145,12 +154,10 @@ function SearchBox() {
         paddingLeft: 14,
         paddingRight: 10,
         borderRadius: 20,
-        backgroundColor: focused ? C.surfaceHigh : C.surface,
-        borderWidth: 2,
-        borderColor: focused ? alpha(C.primary, 0.55) : alpha(C.primary, 0),
-        hover: { backgroundColor: C.surfaceHigh },
       }}
     >
+      <Glass variant="panel" radius={20} />
+      <FocusRing on={focused} radius={20} />
       <Icon name="search" size={16} color={C.muted} />
       <input
         ref={searchInput as never}
@@ -172,16 +179,39 @@ function SearchBox() {
             host().renderer.blur();
           }
         }}
-        style={{ flexGrow: 1, minWidth: 0, height: 36, fontSize: 14, color: C.text, backgroundColor: C.surface }}
+        style={{ flexGrow: 1, minWidth: 0, height: 36, fontSize: 14, color: C.text, backgroundColor: CLEAR }}
       />
       {query ? (
         <IconButton icon="x" label="Clear search" size={26} iconSize={14} onClick={() => set({ query: "" })} />
       ) : (
-        <div style={{ ...center, height: 20, paddingLeft: 6, paddingRight: 6, borderRadius: 6, borderWidth: 1, borderColor: C.hairline }}>
-          <text style={{ fontSize: 11, color: C.faint }}>Ctrl K</text>
+        <div style={{ ...center, height: 22, paddingLeft: 7, paddingRight: 7, borderRadius: 7, backgroundColor: alpha(C.text, 0.07) }}>
+          <text style={{ fontSize: 11, fontWeight: 600, color: C.muted }}>Ctrl K</text>
         </div>
       )}
     </div>
+  );
+}
+
+const CLEAR = "#00000000";
+
+/** A keyboard-focus ring over a glass field. Glass paints over its box's own
+ * border, so the ring is a layer on top. */
+function FocusRing({ on, radius: r }: { on: boolean; radius: number }) {
+  if (!on) return null;
+  return (
+    <div
+      style={{
+        position: "absolute",
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+        borderRadius: r,
+        borderWidth: 2,
+        borderColor: alpha(C.primary, 0.6),
+        pointerEvents: "none",
+      }}
+    />
   );
 }
 
@@ -223,14 +253,11 @@ function SearchResults() {
         top: SIZE.top - 4,
         width,
         padding: 8,
-        borderRadius: 16,
-        backgroundColor: C.overlay,
-        borderWidth: 1,
-        borderColor: alpha(C.text, 0.06),
-        boxShadow: { offsetX: 0, offsetY: 24, blurRadius: 60, spreadRadius: 0, color: "#0000008c" },
+        borderRadius: 18,
         pointerEvents: "auto",
       }}
     >
+      <Glass variant="sheet" radius={18} />
       {items.length === 0 && <text style={{ fontSize: 13, color: C.muted, padding: 12 }}>{`No matches for “${query}”`}</text>}
       {items.map((item) => (
         <div
@@ -241,7 +268,7 @@ function SearchResults() {
             set({ searchOpen: false });
             host().renderer.blur();
           }}
-          style={{ ...row, gap: 12, padding: 6, paddingLeft: 8, paddingRight: 8, borderRadius: 10, cursor: "pointer", hover: { backgroundColor: C.overlayHover } }}
+          style={{ ...row, gap: 12, padding: 6, paddingLeft: 8, paddingRight: 8, borderRadius: 12, cursor: "pointer", hover: { backgroundColor: alpha(C.text, 0.06) } }}
         >
           <Artwork id={item.id} tag={item.tag} size={40} radius={7} round={item.round} />
           <div style={{ ...column, gap: 2, flexGrow: 1 }}>
@@ -273,20 +300,25 @@ function NavItem({ route, label, icon, count }: { route: Route; label: string; i
       onClick={() => go(route)}
       style={{
         ...row,
+        position: "relative",
         height: 40,
         gap: 14,
-        paddingLeft: collapsed ? 0 : 12,
-        paddingRight: 12,
+        paddingLeft: collapsed ? 0 : 14,
+        paddingRight: 14,
         justifyContent: collapsed ? "center" : "flex-start",
-        borderRadius: 10,
+        borderRadius: 20,
         cursor: "pointer",
-        backgroundColor: current ? C.surfaceHigh : alpha(C.frame, 0),
-        hover: current ? undefined : { backgroundColor: alpha(C.text, 0.04) },
+        hover: current ? undefined : { backgroundColor: alpha(C.text, 0.05) },
       }}
     >
-      <Icon name={icon} size={20} color={current ? C.primary : C.muted} />
-      {!collapsed && <text style={{ fontSize: 14, fontWeight: 600, color: current ? C.text : C.muted, flexGrow: 1 }}>{label}</text>}
-      {!collapsed && count !== undefined && <text style={{ fontSize: 12, color: C.faint }}>{count.toLocaleString()}</text>}
+      {current && <Glass tint={TINTS.jelly} radius={20} />}
+      <Icon name={icon} size={20} color={current ? ink(TINTS.jelly, "tonal") : C.muted} />
+      {!collapsed && (
+        <text style={{ fontSize: 14, fontWeight: 600, color: current ? ink(TINTS.jelly, "tonal") : C.muted, flexGrow: 1 }}>{label}</text>
+      )}
+      {!collapsed && count !== undefined && (
+        <text style={{ fontSize: 12, color: current ? `${ink(TINTS.jelly, "tonal")}b3` : C.faint }}>{count.toLocaleString()}</text>
+      )}
     </div>
   );
 }
@@ -337,21 +369,26 @@ function Sidebar() {
               onClick={() => go({ name: "playlist", id: playlist.id })}
               style={{
                 ...row,
+                position: "relative",
                 gap: 12,
                 padding: 6,
                 justifyContent: collapsed ? "center" : "flex-start",
-                borderRadius: 10,
+                borderRadius: 16,
                 cursor: "pointer",
                 flexShrink: 0,
-                backgroundColor: current ? C.surfaceHigh : alpha(C.frame, 0),
-                hover: current ? undefined : { backgroundColor: alpha(C.text, 0.04) },
+                hover: current ? undefined : { backgroundColor: alpha(C.text, 0.05) },
               }}
             >
-              <Artwork id={playlist.id} tag={playlist.imageTag} size={44} radius={8} />
+              {current && <Glass tint={TINTS.jelly} radius={16} />}
+              <Artwork id={playlist.id} tag={playlist.imageTag} size={44} radius={10} />
               {!collapsed && (
                 <div style={{ ...column, gap: 2, minWidth: 0 }}>
-                  <text style={{ fontSize: 14, fontWeight: 600, color: C.text, ...ellipsis }}>{playlist.name}</text>
-                  <text style={{ fontSize: 12, color: C.muted }}>{`${playlist.count.toLocaleString()} songs`}</text>
+                  <text style={{ fontSize: 14, fontWeight: 600, color: current ? ink(TINTS.jelly, "tonal") : C.text, ...ellipsis }}>
+                    {playlist.name}
+                  </text>
+                  <text style={{ fontSize: 12, color: current ? `${ink(TINTS.jelly, "tonal")}b3` : C.muted }}>
+                    {`${playlist.count.toLocaleString()} songs`}
+                  </text>
                 </div>
               )}
             </div>
@@ -368,11 +405,11 @@ function Sidebar() {
             ...row,
             height: 40,
             gap: 14,
-            paddingLeft: collapsed ? 0 : 12,
+            paddingLeft: collapsed ? 0 : 14,
             justifyContent: collapsed ? "center" : "flex-start",
-            borderRadius: 10,
+            borderRadius: 20,
             cursor: "pointer",
-            hover: { backgroundColor: alpha(C.text, 0.04) },
+            hover: { backgroundColor: alpha(C.text, 0.05) },
           }}
         >
           <Icon name="sidebar" size={20} color={C.muted} />
@@ -424,22 +461,26 @@ function Main() {
       break;
   }
   return (
-    <div style={{ ...column, flexGrow: 1, minWidth: 0, borderRadius: radius.lg, backgroundColor: C.bg, overflow: "hidden" }}>
-      <Motion
-        key={JSON.stringify(route)}
-        initial={{ opacity: 0, top: 6 }}
-        animate={{ opacity: 1, top: 0 }}
-        transition={{ duration: motion.base, ease: motion.ease }}
-        style={{ ...column, flexGrow: 1, minHeight: 0, position: "relative" }}
-      >
-        {page}
-      </Motion>
+    <div style={{ ...column, flexGrow: 1, minWidth: 0, position: "relative" }}>
+      <Glass variant="panel" radius={radius.slab} />
+      <div style={{ ...column, flexGrow: 1, minHeight: 0, borderRadius: radius.slab, overflow: "hidden" }}>
+        <Motion
+          key={JSON.stringify(route)}
+          initial={{ opacity: 0, top: 6 }}
+          animate={{ opacity: 1, top: 0 }}
+          transition={{ duration: motion.base, ease: motion.ease }}
+          style={{ ...column, flexGrow: 1, minHeight: 0, position: "relative" }}
+        >
+          {page}
+        </Motion>
+      </div>
     </div>
   );
 }
 
 function SidePanel() {
   const panel = useStore((s) => s.panel);
+  const tint = useNowTint();
   return (
     <Motion
       initial={false}
@@ -447,7 +488,9 @@ function SidePanel() {
       transition={{ duration: motion.base, ease: motion.ease }}
       style={{ height: "100%", flexShrink: 0, overflow: "hidden" }}
     >
-      <div style={{ ...column, width: SIZE.panel, height: "100%", marginLeft: SIZE.gutter, borderRadius: radius.lg, backgroundColor: C.bg, overflow: "hidden" }}>
+      <div style={{ ...column, position: "relative", width: SIZE.panel, height: "100%", marginLeft: SIZE.gutter }}>
+        <Glass variant="panel" radius={radius.slab} />
+        <div style={{ ...column, flexGrow: 1, minHeight: 0, borderRadius: radius.slab, overflow: "hidden" }}>
         <div style={{ ...row, gap: 4, paddingLeft: 12, paddingRight: 12, paddingTop: 12, paddingBottom: 8 }}>
           {(["queue", "lyrics"] as const).map((tab) => (
             <div
@@ -457,15 +500,19 @@ function SidePanel() {
               onClick={() => setPanel(tab)}
               style={{
                 ...center,
+                position: "relative",
                 height: 32,
                 paddingLeft: 14,
                 paddingRight: 14,
                 borderRadius: 16,
                 cursor: "pointer",
-                backgroundColor: panel === tab ? C.surfaceHigh : alpha(C.bg, 0),
+                hover: panel === tab ? undefined : { backgroundColor: alpha(C.text, 0.05) },
               }}
             >
-              <text style={{ fontSize: 13, fontWeight: 600, color: panel === tab ? C.text : C.muted }}>{tab === "queue" ? "Queue" : "Lyrics"}</text>
+              {panel === tab && <Glass tint={tint} radius={16} />}
+              <text style={{ fontSize: 13, fontWeight: 600, color: panel === tab ? ink(tint, "tonal") : C.muted }}>
+                {tab === "queue" ? "Queue" : "Lyrics"}
+              </text>
             </div>
           ))}
           <div style={{ flexGrow: 1 }} />
@@ -478,6 +525,7 @@ function SidePanel() {
           </>
         )}
         {panel === "lyrics" && <Lyrics size="panel" />}
+        </div>
       </div>
     </Motion>
   );
@@ -513,14 +561,11 @@ function MenuLayer() {
                   left: x,
                   width,
                   padding: 6,
-                  borderRadius: 14,
-                  backgroundColor: C.overlay,
-                  borderWidth: 1,
-                  borderColor: alpha(C.text, 0.07),
-                  boxShadow: { offsetX: 0, offsetY: 18, blurRadius: 48, spreadRadius: 0, color: "#0000008c" },
+                  borderRadius: 16,
                   pointerEvents: "auto",
                 }}
               >
+                <Glass variant="sheet" radius={16} />
                 {menu.items.map((item, i) =>
                   item === "-" ? (
                     <div key={i} style={{ height: 1, marginTop: 5, marginBottom: 5, marginLeft: 8, marginRight: 8, backgroundColor: C.hairline }} />
@@ -532,7 +577,7 @@ function MenuLayer() {
                         closeMenu();
                         item.run();
                       }}
-                      style={{ ...row, height: MENU_ROW, gap: 12, paddingLeft: 10, paddingRight: 10, borderRadius: 9, cursor: "pointer", hover: { backgroundColor: C.overlayHover } }}
+                      style={{ ...row, height: MENU_ROW, gap: 12, paddingLeft: 10, paddingRight: 10, borderRadius: 10, cursor: "pointer", hover: { backgroundColor: alpha(C.text, 0.06) } }}
                     >
                       {item.icon ? <Icon name={item.icon} size={18} color={item.danger ? C.error : C.muted} /> : <div style={{ width: 18 }} />}
                       <text style={{ fontSize: 13.5, color: item.danger ? C.error : C.text, flexGrow: 1, ...ellipsis }}>{item.label}</text>
@@ -562,8 +607,9 @@ function Toast() {
           transition={{ duration: motion.base, ease: motion.ease }}
           style={{ ...row, position: "absolute", left: 0, right: 0, justifyContent: "center", pointerEvents: "none" }}
         >
-          <div style={{ paddingLeft: 16, paddingRight: 16, paddingTop: 10, paddingBottom: 10, borderRadius: 12, backgroundColor: C.onPrimaryContainer }}>
-            <text style={{ fontSize: 13, fontWeight: 600, color: "#1b1640" }}>{toast.text}</text>
+          <div style={{ position: "relative", paddingLeft: 18, paddingRight: 18, paddingTop: 11, paddingBottom: 11, borderRadius: 20 }}>
+            <Glass tint={TINTS.jelly} variant="filled" radius={20} />
+            <text style={{ fontSize: 13, fontWeight: 600, color: ink(TINTS.jelly, "filled") }}>{toast.text}</text>
           </div>
         </Motion>
       )}
@@ -583,13 +629,25 @@ function Dialog() {
     createPlaylist(value, dialog.ids);
   };
   return (
-    <div style={{ ...center, position: "absolute", left: 0, top: 0, width: "100%", height: "100%", backgroundColor: "#00000080", pointerEvents: "auto" }}>
+    <div
+      style={{
+        ...center,
+        position: "absolute",
+        left: 0,
+        top: 0,
+        width: "100%",
+        height: "100%",
+        backgroundColor: get().theme === "shore" ? "#0a1e1c33" : "#00000080",
+        pointerEvents: "auto",
+      }}
+    >
       <Motion
         initial={{ opacity: 0, top: 8 }}
         animate={{ opacity: 1, top: 0 }}
         transition={{ duration: motion.base, ease: motion.ease }}
-        style={{ ...column, width: 420, padding: 24, gap: 16, borderRadius: 20, backgroundColor: C.overlay, position: "relative" }}
+        style={{ ...column, width: 420, padding: 24, gap: 16, borderRadius: 24, position: "relative" }}
       >
+        <Glass variant="sheet" radius={24} />
         <text style={{ fontSize: 20, fontWeight: 800, color: C.text }}>New playlist</text>
         {dialog.ids.length > 0 && <text style={text.body(13, C.muted)}>{`With ${dialog.ids.length === 1 ? "this song" : `these ${dialog.ids.length} songs`}`}</text>}
         <input
@@ -599,7 +657,7 @@ function Dialog() {
           onChange={(e) => setName(e.value ?? "")}
           onSubmit={submit}
           onKeyDown={(e) => e.key === "escape" && set({ dialog: null })}
-          style={{ height: 44, paddingLeft: 14, paddingRight: 14, borderRadius: 12, fontSize: 14, color: C.text, backgroundColor: C.surfaceHigh }}
+          style={{ height: 44, paddingLeft: 14, paddingRight: 14, borderRadius: 14, fontSize: 14, color: C.text, backgroundColor: alpha(C.text, 0.06) }}
         />
         <div style={{ ...row, gap: 8, justifyContent: "flex-end" }}>
           <Button label="Cancel" onClick={() => set({ dialog: null })} />
@@ -629,16 +687,16 @@ function Field({ icon, label, value, onChange, secure, placeholder, onSubmit, au
       <div
         style={{
           ...row,
+          position: "relative",
           height: 48,
           gap: 12,
           paddingLeft: 14,
           paddingRight: 14,
-          borderRadius: 14,
-          backgroundColor: C.surface,
-          borderWidth: 2,
-          borderColor: focused ? alpha(C.primary, 0.6) : alpha(C.primary, 0),
+          borderRadius: 16,
         }}
       >
+        <Glass variant="panel" radius={16} />
+        <FocusRing on={focused} radius={16} />
         <Icon name={icon} size={18} color={focused ? C.primary : C.muted} />
         {createElement("input", {
           value,
@@ -649,18 +707,17 @@ function Field({ icon, label, value, onChange, secure, placeholder, onSubmit, au
           onSubmit,
           onFocus: () => setFocused(true),
           onBlur: () => setFocused(false),
-          style: { flexGrow: 1, minWidth: 0, height: 40, fontSize: 14, color: C.text, backgroundColor: C.surface },
+          style: { flexGrow: 1, minWidth: 0, height: 40, fontSize: 14, color: C.text, backgroundColor: CLEAR },
         })}
       </div>
     </div>
   );
 }
 
+/** Before the library: the ground alone, under the title bar. */
 function Backdrop({ children }: { children: ReactNode }) {
   return (
     <div style={{ ...column, flexGrow: 1, position: "relative", overflow: "hidden" }}>
-      <div style={{ position: "absolute", left: -160, top: -220, width: 520, height: 360, borderRadius: 260, opacity: 0.5, boxShadow: { offsetX: 0, offsetY: 0, blurRadius: 280, spreadRadius: 80, color: "#4b3a9a" } }} />
-      <div style={{ position: "absolute", right: -200, bottom: -240, width: 520, height: 360, borderRadius: 260, opacity: 0.4, boxShadow: { offsetX: 0, offsetY: 0, blurRadius: 280, spreadRadius: 80, color: "#7a3560" } }} />
       <div style={{ ...row, height: SIZE.top, flexShrink: 0 }}>
         <Caption action="drag" style={{ flexGrow: 1, height: SIZE.top }} />
         <CaptionButtons />
@@ -718,12 +775,12 @@ function Syncing() {
           {sync?.error ?? (sync?.stage || "Preparing your library")}
         </text>
         {!sync?.error && (
-          <div style={{ position: "relative", width: 440, height: 6, borderRadius: 3, backgroundColor: C.surfaceHigh, overflow: "hidden" }}>
+          <div style={{ position: "relative", width: 440, height: 8, borderRadius: 4, backgroundColor: alpha(C.text, 0.1), overflow: "hidden" }}>
             <Motion
               initial={false}
               animate={{ width: sync?.total ? width : 110 }}
               transition={{ duration: 0.4, ease: motion.ease }}
-              style={{ position: "absolute", left: 0, top: 0, height: 6, borderRadius: 3, backgroundColor: C.primary }}
+              style={{ position: "absolute", left: 0, top: 0, height: 8, borderRadius: 4, backgroundColor: C.primary }}
             />
           </div>
         )}
@@ -743,11 +800,26 @@ function Syncing() {
 
 // ---- Root ---------------------------------------------------------------------------
 
+/** The ground the glass lies on: still pools of the playing album's colors. */
+function Ground() {
+  const theme = useStore((s) => s.theme);
+  const colors = useNowPalette();
+  return createElement("aurelia-clouds", {
+    colors,
+    theme,
+    still: true,
+    style: { position: "absolute", left: 0, top: 0, right: 0, bottom: 0 },
+  });
+}
+
 export function App() {
   const stage = useStore((s) => s.stage);
   const query = useStore((s) => s.query);
+  // Every color comes from the theme, so a change re-renders everything.
+  useStore((s) => s.theme);
   return (
     <div style={{ ...column, width: "100%", height: "100%", backgroundColor: C.frame, color: C.text, fontFamily: F.sans, userSelect: "none" }}>
+      <Ground />
       {stage === "boot" && <Backdrop>{null}</Backdrop>}
       {stage === "login" && <SignIn />}
       {stage === "sync" && <Syncing />}

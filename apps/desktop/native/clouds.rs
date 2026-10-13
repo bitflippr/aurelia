@@ -1,7 +1,9 @@
-//! `<aurelia-clouds>`: the full player's backdrop, after Android's. Broad
-//! clouds of the art's colors drift over a dark base and fade to a new song's
-//! colors over a few seconds. GPUI has no radial gradient, so each cloud is
-//! the blurred shadow of a disc.
+//! `<aurelia-clouds>`: the ground the glass lies on. In the full player,
+//! after Android's, broad clouds of the art's colors drift over the base and
+//! fade to a new song's colors over a few seconds. Behind the window they
+//! hold `still`, as soft pools in the corners, and redraw only while they
+//! fade. `theme` picks a pale shore or a dark tide pool. GPUI has no radial
+//! gradient, so each cloud is the blurred shadow of a disc.
 use crate::custom_elements::{
     custom_surface, CustomElement, CustomElementFactory, CustomRenderContext,
 };
@@ -10,7 +12,10 @@ use std::time::{Duration, Instant};
 
 /// New colors fade in over this long.
 const FADE: Duration = Duration::from_secs(5);
-const BASE: u32 = 0x100f18ff;
+const NIGHT_BASE: u32 = 0x09090fff;
+const SHORE_BASE: u32 = 0xebf0eeff;
+/// Night tide's faint violet haze from above, as under a blacklight.
+const HAZE: u32 = 0x604ae0ff;
 
 pub struct CloudsFactory;
 
@@ -36,6 +41,8 @@ struct Clouds {
     seconds: f64,
     last_frame: Option<Instant>,
     drawn: bool,
+    shore: bool,
+    still: bool,
 }
 
 impl Clouds {
@@ -65,8 +72,17 @@ fn mix(from: Rgba, to: Rgba, t: f32) -> Rgba {
 
 impl CustomElement for Clouds {
     fn set_prop(&mut self, key: &str, value: serde_json::Value) {
-        if key != "colors" {
-            return;
+        match key {
+            "theme" => {
+                self.shore = value.as_str() == Some("shore");
+                return;
+            }
+            "still" => {
+                self.still = value.as_bool().unwrap_or(false);
+                return;
+            }
+            "colors" => {}
+            _ => return,
         }
         let Some(colors) = value.as_array().and_then(|list| {
             let parsed: Vec<Rgba> = list
@@ -95,7 +111,7 @@ impl CustomElement for Clouds {
     }
 
     fn supported_props(&self) -> &'static [&'static str] {
-        &["colors"]
+        &["colors", "theme", "still"]
     }
 
     fn supported_events(&self) -> &'static [&'static str] {
@@ -115,6 +131,12 @@ impl CustomElement for Clouds {
         if cx.reduce_motion() {
             self.changed = None;
             self.last_frame = None;
+        } else if self.still {
+            // Still clouds hold their places and redraw only to fade.
+            self.last_frame = None;
+            if self.fading() {
+                window.request_animation_frame();
+            }
         } else {
             if let Some(last) = self.last_frame {
                 // A minimized window gets no frames; the clouds carry on from
@@ -129,6 +151,7 @@ impl CustomElement for Clouds {
         }
         let colors = self.shown();
         let seconds = self.seconds;
+        let (shore, still) = (self.shore, self.still);
 
         custom_surface(
             div().id(SharedString::from(format!("__aurelia_clouds_{}", ctx.id))),
@@ -139,7 +162,11 @@ impl CustomElement for Clouds {
                 |_, _, _| {},
                 move |bounds, _, window, _| {
                     window.with_content_mask(Some(ContentMask { bounds }), |window| {
-                        paint_clouds(bounds, colors, seconds, window)
+                        if still {
+                            paint_ground(bounds, colors, shore, window)
+                        } else {
+                            paint_clouds(bounds, colors, seconds, shore, window)
+                        }
                     });
                 },
             )
@@ -200,53 +227,154 @@ const CLOUDS: [Cloud; 5] = [
     },
 ];
 
+/// A cloud of `color`, the blurred shadow of a disc `reach` from its middle
+/// to where it has faded out.
+fn paint_cloud(center: Point<Pixels>, reach: f32, color: Hsla, window: &mut Window) {
+    // A disc this size, blurred this much, peaks at 70% and fades out by
+    // `reach`.
+    let radius = px(reach * 0.48);
+    let blur = px(reach * 0.31);
+    window.paint_drop_shadows(
+        Bounds::centered_at(center, size(radius * 2.0, radius * 2.0)),
+        Corners::all(radius),
+        &[BoxShadow {
+            color,
+            offset: point(px(0.0), px(0.0)),
+            blur_radius: blur,
+            spread_radius: px(0.0),
+            inset: false,
+        }],
+    );
+}
+
+/// Art colors are toned for flat tints. As light on a pale shore they are
+/// lifted and softened; in the dark they stay deep, so they read as color in
+/// the water rather than as glow.
+fn as_light(color: Rgba, shore: bool, alpha: f32) -> Hsla {
+    let mut color = Hsla::from(color);
+    if shore {
+        color.s = (color.s * 0.8).min(0.75);
+        color.l = color.l.clamp(0.74, 0.84);
+    } else {
+        color.s = (color.s * 1.1).min(1.0);
+        color.l = color.l.clamp(0.3, 0.42);
+    }
+    color.a *= alpha;
+    color
+}
+
+/// Frost over the ground, about a point to a grain.
+fn paint_frost(bounds: Bounds<Pixels>, shore: bool, window: &mut Window) {
+    let cell = window.scale_factor().round().max(1.0);
+    let (light, dark) = if shore {
+        (rgba(0xffffff10), rgba(0x0a28240a))
+    } else {
+        (rgba(0xffffff06), rgba(0x00000014))
+    };
+    window.paint_quad(fill(bounds, grain(light, dark, cell, 0.0)));
+}
+
+/// The window's ground: still pools of the art's colors in the corners.
+fn paint_ground(
+    bounds: Bounds<Pixels>,
+    colors: Option<[Rgba; 3]>,
+    shore: bool,
+    window: &mut Window,
+) {
+    window.paint_quad(fill(
+        bounds,
+        rgba(if shore { SHORE_BASE } else { NIGHT_BASE }),
+    ));
+    let width = f32::from(bounds.size.width);
+    let height = f32::from(bounds.size.height);
+    let at = |x: f32, y: f32| bounds.origin + point(px(width * x), px(height * y));
+    let reach = width.max(height) * 0.42;
+    if !shore {
+        paint_cloud(
+            at(0.5, -0.16),
+            reach * 1.2,
+            Hsla::from(rgba(HAZE)).opacity(0.17),
+            window,
+        );
+    }
+    if let Some(colors) = colors {
+        let (strong, faint) = if shore { (0.62, 0.3) } else { (0.36, 0.16) };
+        paint_cloud(
+            at(0.06, -0.06),
+            reach,
+            as_light(colors[0], shore, strong),
+            window,
+        );
+        paint_cloud(
+            at(0.98, 0.06),
+            reach * 0.9,
+            as_light(colors[1], shore, faint),
+            window,
+        );
+        paint_cloud(
+            at(0.52, 1.1),
+            reach * 1.1,
+            as_light(colors[0], shore, strong * 0.85),
+            window,
+        );
+    }
+    paint_frost(bounds, shore, window);
+}
+
 /// Clouds on looping paths, then a shade toward the bottom.
 fn paint_clouds(
     bounds: Bounds<Pixels>,
     colors: Option<[Rgba; 3]>,
     seconds: f64,
+    shore: bool,
     window: &mut Window,
 ) {
-    window.paint_quad(fill(bounds, rgba(BASE)));
+    window.paint_quad(fill(
+        bounds,
+        rgba(if shore { SHORE_BASE } else { NIGHT_BASE }),
+    ));
+    let width = f32::from(bounds.size.width);
+    let height = f32::from(bounds.size.height);
+    if !shore {
+        let haze = bounds.origin + point(px(width * 0.5), px(height * -0.16));
+        paint_cloud(
+            haze,
+            width.max(height) * 0.5,
+            Hsla::from(rgba(HAZE)).opacity(0.17),
+            window,
+        );
+    }
     if let Some(colors) = colors {
-        let width = f32::from(bounds.size.width);
-        let height = f32::from(bounds.size.height);
         for cloud in &CLOUDS {
             let x = cloud.home.0 + cloud.wander.0 * (seconds * cloud.speed.0 + cloud.phase).sin();
             let y = cloud.home.1 + cloud.wander.1 * (seconds * cloud.speed.1 + cloud.phase).cos();
             let center = bounds.origin + point(px(width * x as f32), px(height * y as f32));
             // Each cloud swells and shrinks a little as it goes. Clouds this
-            // size leave dark gaps between them, so overlapping hues don't
-            // all average to brown. A disc this size, blurred this much,
-            // peaks at 70% and fades out by `reach`.
+            // size leave gaps between them, so overlapping hues don't all
+            // average to brown.
             let swell = 1.0 + 0.18 * (seconds * 0.37 + cloud.phase * 1.9).sin();
             let reach = width.max(height) * 0.5 * swell as f32;
-            let radius = px(reach * 0.48);
-            let blur = px(reach * 0.31);
-            // Art colors are toned for flat tints; a little richer reads
-            // better as light.
-            let mut color = Hsla::from(colors[cloud.color]);
-            color.s = (color.s * 1.15).min(1.0);
-            color.l = color.l.clamp(0.38, 0.5);
-            window.paint_drop_shadows(
-                Bounds::centered_at(center, size(radius * 2.0, radius * 2.0)),
-                Corners::all(radius),
-                &[BoxShadow {
-                    color,
-                    offset: point(px(0.0), px(0.0)),
-                    blur_radius: blur,
-                    spread_radius: px(0.0),
-                    inset: false,
-                }],
+            let alpha = if shore { 0.8 } else { 0.5 };
+            paint_cloud(
+                center,
+                reach,
+                as_light(colors[cloud.color], shore, alpha),
+                window,
             );
         }
     }
+    let (top, bottom) = if shore {
+        (rgba(0xffffff00), rgba(0x0a282412))
+    } else {
+        (rgba(0x0000000f), rgba(0x00000066))
+    };
     window.paint_quad(fill(
         bounds,
         linear_gradient(
             180.0,
-            linear_color_stop(rgba(0x0000000f), 0.0),
-            linear_color_stop(rgba(0x00000059), 1.0),
+            linear_color_stop(top, 0.0),
+            linear_color_stop(bottom, 1.0),
         ),
     ));
+    paint_frost(bounds, shore, window);
 }

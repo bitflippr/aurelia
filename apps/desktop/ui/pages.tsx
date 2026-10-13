@@ -1,6 +1,6 @@
 // Library pages: home, albums, artists, songs, favorites, playlists, search
 // and settings.
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   AlbumCard,
   Ambient,
@@ -17,12 +17,12 @@ import {
   useColumns,
   pageTitle,
 } from "./components";
+import { Glass, TINTS, ink, inkSoft, useAlbumTint, type Tint } from "./glass";
 import { Icon } from "./icons";
 import { longDuration, plural, type Album, type Artist, type Library, type Song } from "./library";
 import { albumMenu, songMenu } from "./menus";
-import { Page, Pad, usePalette, type Sticky } from "./page";
+import { Page, Pad, type Sticky } from "./page";
 import {
-  ensureArtwork,
   go,
   newPlaylist,
   openMenu,
@@ -30,14 +30,16 @@ import {
   playSong,
   runSync,
   set,
+  setThemePref,
   signOut,
   useStore,
+  type ThemePref,
   type AlbumSort,
   type Mix,
   type SongSort,
 } from "./store";
 import { ROW_HEIGHT, TrackHeader, TrackRow, useCurrentId } from "./tracks";
-import { C, F, SIZE, alpha, center, column, ellipsis, mix, radius, row, text } from "./theme";
+import { C, F, SIZE, alpha, center, column, ellipsis, radius, row, text } from "./theme";
 
 const GREETINGS = ["Tune in", "Hit play", "Your music", "Find a vibe", "Good tunes"];
 const greeting = GREETINGS[Math.floor(Math.random() * GREETINGS.length)];
@@ -46,7 +48,7 @@ function Header({ title, sub, children }: { title: string; sub?: string; childre
   return (
     <div style={{ ...row, alignItems: "flex-end", justifyContent: "space-between", paddingTop: 36, paddingBottom: 22, gap: 24 }}>
       <div style={{ ...column }}>
-        <text style={pageTitle}>{title}</text>
+        <text style={pageTitle()}>{title}</text>
         {sub && <text style={{ ...text.body(14, C.muted), marginTop: 8 }}>{sub}</text>}
       </div>
       {children && <div style={{ ...row, gap: 8 }}>{children}</div>}
@@ -149,12 +151,12 @@ function Mixes({ mixes, library }: { mixes: Mix[] | null; library: Library }) {
   );
 }
 
+/** A mix is a piece of its lead album's glass. */
 function MixCard({ mix: m, library }: { mix: Mix | null; library: Library }) {
   const albums = (m?.covers ?? []).map((id) => library.album.get(id)).filter((a): a is Album => !!a);
   const lead = albums[0];
-  useEffect(() => ensureArtwork(lead?.id, lead?.imageTag), [lead?.id]);
-  const tint = usePalette(lead?.id)?.[0];
-  if (!m) return <div style={{ flexGrow: 1, flexBasis: 0, height: 148, borderRadius: 20, backgroundColor: C.surface }} />;
+  const tint = useAlbumTint(lead?.id, lead?.imageTag);
+  if (!m) return <div style={{ flexGrow: 1, flexBasis: 0, height: 148, borderRadius: 30, backgroundColor: alpha(C.text, 0.05) }} />;
   return (
     <div
       role="button"
@@ -162,6 +164,7 @@ function MixCard({ mix: m, library }: { mix: Mix | null; library: Library }) {
       onClick={() => play(m.songs)}
       style={{
         ...row,
+        position: "relative",
         flexGrow: 1,
         flexBasis: 0,
         minWidth: 0,
@@ -169,20 +172,20 @@ function MixCard({ mix: m, library }: { mix: Mix | null; library: Library }) {
         gap: 16,
         paddingLeft: 20,
         paddingRight: 16,
-        borderRadius: 20,
+        borderRadius: 30,
         cursor: "pointer",
-        backgroundColor: tint ? mix(C.surface, tint, 0.25) : C.surface,
-        hover: { backgroundColor: tint ? mix(C.surface, tint, 0.32) : C.surfaceHigh },
       }}
     >
-      <Collage albums={albums} size={88} radius={16} />
+      <Glass tint={tint} radius={30} interactive />
+      <Collage albums={albums} size={88} radius={18} />
       <div style={{ ...column, flexGrow: 1, gap: 6 }}>
-        <text style={{ fontSize: 18, fontWeight: 700, color: C.text, lineClamp: 2, lineHeight: 22 }}>{m.title}</text>
-        <text style={{ fontSize: 13, color: C.muted, lineClamp: 2, lineHeight: 18 }}>{m.subtitle}</text>
+        <text style={{ fontSize: 18, fontWeight: 700, color: ink(tint, "tonal"), lineClamp: 2, lineHeight: 22 }}>{m.title}</text>
+        <text style={{ fontSize: 13, color: inkSoft(tint, "tonal"), lineClamp: 2, lineHeight: 18 }}>{m.subtitle}</text>
       </div>
-      {/* Light, as in the player bar: purple clashes with some tints. */}
-      <div style={{ ...center, alignSelf: "flex-end", marginBottom: 16, width: 40, height: 40, borderRadius: 20, backgroundColor: C.text, flexShrink: 0 }}>
-        <Icon name="play" size={18} color={C.frame} />
+      {/* A frosted pearl, not the mix's own color: it reads on any tint. */}
+      <div style={{ ...center, position: "relative", alignSelf: "flex-end", marginBottom: 16, width: 40, height: 40, borderRadius: 20, flexShrink: 0 }}>
+        <Glass tint={TINTS.frost} variant="pearl" radius={20} />
+        <Icon name="play" size={18} color={ink(TINTS.frost, "pearl")} />
       </div>
     </div>
   );
@@ -213,6 +216,8 @@ function QuickPicks({ songs, library }: { songs: Song[]; library: Library }) {
 
 function QuickPick({ song, list, playing, tag }: { song: Song; list: string[]; playing: boolean; tag?: string }) {
   const [hover, setHover] = useState(false);
+  // Only the playing song becomes glass, so only it needs its album's palette.
+  const tint = useAlbumTint(playing ? song.albumId : undefined, playing ? tag : undefined);
   return (
     <div
       role="button"
@@ -223,41 +228,49 @@ function QuickPick({ song, list, playing, tag }: { song: Song; list: string[]; p
       onAuxClick={(e) => e.isRightClick && openMenu({ x: e.x ?? 0, y: e.y ?? 0, items: songMenu(song) })}
       style={{
         ...row,
+        position: "relative",
         flexGrow: 1,
         flexBasis: 0,
         minWidth: 0,
         gap: 12,
         padding: 6,
         paddingRight: 12,
-        borderRadius: 12,
+        borderRadius: 18,
         cursor: "pointer",
-        backgroundColor: hover ? alpha(C.text, 0.05) : alpha(C.bg, 0),
+        backgroundColor: hover && !playing ? alpha(C.text, 0.05) : undefined,
       }}
     >
+      {playing && <Glass tint={tint} radius={18} live interactive />}
       <div style={{ position: "relative", width: 52, height: 52, flexShrink: 0 }}>
-        <Artwork id={song.albumId} tag={tag} size={52} radius={9} />
+        <Artwork id={song.albumId} tag={tag} size={52} radius={11} />
         {(hover || playing) && (
-          <div style={{ ...center, position: "absolute", left: 0, top: 0, width: 52, height: 52, borderRadius: 9, backgroundColor: "#00000073" }}>
-            <Icon name="play" size={20} color={C.text} />
+          <div style={{ ...center, position: "absolute", left: 0, top: 0, width: 52, height: 52, borderRadius: 11, backgroundColor: "#0000005c" }}>
+            <Icon name="play" size={20} color="#ffffff" />
           </div>
         )}
       </div>
       <div style={{ ...column, gap: 3, flexGrow: 1 }}>
-        <text style={{ ...text.title(14), ...ellipsis, color: playing ? C.primary : C.text }}>{song.title}</text>
-        <text style={{ ...text.body(13, C.muted), ...ellipsis }}>{`${song.artist} · ${song.fav ? "Forgotten favorite" : plural(song.plays, "play")}`}</text>
+        <text style={{ ...text.title(14), ...ellipsis, color: playing ? ink(tint, "tonal") : C.text }}>{song.title}</text>
+        <text style={{ fontSize: 13, color: playing ? inkSoft(tint, "tonal") : C.muted, ...ellipsis }}>
+          {`${song.artist} · ${song.fav ? "Forgotten favorite" : plural(song.plays, "play")}`}
+        </text>
       </div>
     </div>
   );
 }
 
+/** A handful of sea glass, one piece per genre. */
+const GENRE_TINTS: Tint[] = [TINTS.seafoam, TINTS.amber, TINTS.lavender, TINTS.aqua, TINTS.rose, TINTS.kelp, TINTS.cobalt, TINTS.frost, TINTS.jelly];
+
 function GenreWall({ library }: { library: Library }) {
   const genres = library.genres.slice(0, 9);
   const max = genres[0]?.count ?? 1;
   return (
-    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+    <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
       {genres.map((genre, i) => {
         const weight = genre.count / max;
         const display = i < 2;
+        const tint = GENRE_TINTS[i % GENRE_TINTS.length];
         return (
           <div
             key={genre.name}
@@ -266,24 +279,22 @@ function GenreWall({ library }: { library: Library }) {
             onClick={() => play(library.songs.filter((s) => s.genres?.includes(genre.name)).map((s) => s.id), 0, true)}
             style={{
               ...center,
+              position: "relative",
               flexGrow: 1,
               height: 64,
-              paddingLeft: 22,
-              paddingRight: 22,
-              borderRadius: 18,
-              backgroundColor: C.surface,
-              borderWidth: 1,
-              borderColor: C.hairline,
+              paddingLeft: 24,
+              paddingRight: 24,
+              borderRadius: 32,
               cursor: "pointer",
-              hover: { backgroundColor: C.surfaceHigh },
             }}
           >
+            <Glass tint={tint} radius={32} interactive />
             <text
               style={{
                 fontFamily: display ? F.display : F.sans,
                 fontWeight: display ? 900 : [500, 600, 700, 800][i % 4],
                 fontSize: Math.round(16 + weight * 6),
-                color: C.text,
+                color: ink(tint, "tonal"),
                 whiteSpace: "nowrap",
               }}
             >
@@ -542,25 +553,9 @@ export function Favorites() {
           <Ambient palette={palette} />
           <Pad>
             <div style={{ ...row, alignItems: "flex-end", gap: 28, paddingTop: 40, paddingBottom: 28 }}>
-              <div
-                style={{
-                  ...center,
-                  width: 232,
-                  height: 232,
-                  borderRadius: 16,
-                  flexShrink: 0,
-                  background: {
-                    type: "linear-gradient",
-                    angle: 135,
-                    stops: [
-                      { color: C.pink, position: 0 },
-                      { color: "#6650d9", position: 1 },
-                    ],
-                  },
-                  boxShadow: { offsetX: 0, offsetY: 24, blurRadius: 60, spreadRadius: 0, color: "#00000080" },
-                }}
-              >
-                <Icon name="heartFilled" size={84} color="#fffffff2" />
+              <div style={{ ...center, position: "relative", width: 232, height: 232, borderRadius: 40, flexShrink: 0 }}>
+                <Glass tint={TINTS.rose} variant="filled" radius={40} />
+                <Icon name="heartFilled" size={84} color={ink(TINTS.rose, "filled")} />
               </div>
               <div style={{ ...column, paddingBottom: 4 }}>
                 <text style={text.label()}>Collection</text>
@@ -570,6 +565,7 @@ export function Favorites() {
             </div>
             <div style={{ ...row, gap: 10, paddingTop: 4, paddingBottom: 20 }}>
               <ButtonGroup
+                tint={TINTS.rose}
                 items={[
                   { label: "Play", icon: "play", tone: "filled", onClick: () => play(ids) },
                   { label: "Shuffle", icon: "shuffle", tone: "tonal", onClick: () => play(ids, 0, true) },
@@ -621,7 +617,7 @@ function NewPlaylistCard({ width }: { width: number }) {
       onClick={() => newPlaylist([])}
       style={{ ...column, width, padding: 10, borderRadius: radius.lg, cursor: "pointer", hover: { backgroundColor: alpha(C.text, 0.045) } }}
     >
-      <div style={{ ...center, width: art, height: art, borderRadius: radius.md, backgroundColor: C.surface, borderWidth: 1, borderColor: alpha(C.text, 0.14) }}>
+      <div style={{ ...center, width: art, height: art, borderRadius: radius.md, backgroundColor: alpha(C.text, 0.04), borderWidth: 1, borderColor: alpha(C.text, 0.12) }}>
         <Icon name="plus" size={36} color={C.muted} />
       </div>
       <text style={{ ...text.title(14), marginTop: 10 }}>New playlist</text>
@@ -661,7 +657,7 @@ export function Search({ q }: { q: string }) {
     <Pad key="head">
       <div style={{ ...column, paddingTop: 36, paddingBottom: 18 }}>
         <text style={text.label()}>Search</text>
-        <text style={{ ...pageTitle, marginTop: 6 }}>{`“${q}”`}</text>
+        <text style={{ ...pageTitle(), marginTop: 6 }}>{`“${q}”`}</text>
       </div>
     </Pad>,
   ];
@@ -726,7 +722,7 @@ function TopResult({ item }: { item: Artist | Album }) {
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       onClick={() => go(isArtist ? { name: "artist", id: item.id } : { name: "album", id: item.id })}
-      style={{ ...column, padding: 22, borderRadius: 18, cursor: "pointer", backgroundColor: hover ? C.surfaceHigh : C.surface }}
+      style={{ ...column, padding: 22, borderRadius: 24, cursor: "pointer", backgroundColor: alpha(C.text, hover ? 0.08 : 0.05) }}
     >
       <Artwork
         id={cover ? cover.id : item.id}
@@ -783,7 +779,46 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div style={{ ...column, marginBottom: 32 }}>
       <text style={{ fontSize: 13, fontWeight: 600, color: C.primary, marginBottom: 10 }}>{title}</text>
-      <div style={{ ...column, borderRadius: 18, backgroundColor: C.surfaceLow }}>{children}</div>
+      <div style={{ ...column, borderRadius: 22, backgroundColor: alpha(C.text, 0.04) }}>{children}</div>
+    </div>
+  );
+}
+
+const THEMES: { value: ThemePref; label: string }[] = [
+  { value: "system", label: "System" },
+  { value: "shore", label: "Shore" },
+  { value: "night", label: "Night tide" },
+];
+
+/** System, Shore or Night tide; the chosen one is a pearl of frosted glass. */
+function ThemeChoice() {
+  const pref = useStore((s) => s.themePref);
+  return (
+    <div style={{ ...row, gap: 2, padding: 4, borderRadius: 22, backgroundColor: alpha(C.text, 0.06), flexShrink: 0 }}>
+      {THEMES.map((option) => {
+        const on = option.value === pref;
+        return (
+          <div
+            key={option.value}
+            role="button"
+            aria-pressed={on}
+            onClick={() => setThemePref(option.value)}
+            style={{
+              ...center,
+              position: "relative",
+              height: 34,
+              paddingLeft: 16,
+              paddingRight: 16,
+              borderRadius: 17,
+              cursor: "pointer",
+              hover: on ? undefined : { backgroundColor: alpha(C.text, 0.06) },
+            }}
+          >
+            {on && <Glass tint={TINTS.frost} variant="pearl" radius={17} />}
+            <text style={{ fontSize: 13, fontWeight: 600, color: on ? ink(TINTS.frost, "pearl") : C.muted }}>{option.label}</text>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -811,6 +846,11 @@ export function Settings() {
     </Pad>,
     <Pad key="body" bottom={48}>
       <div style={{ ...column, maxWidth: 680 }}>
+        <Group title="Appearance">
+          <Setting label="Theme" detail="Shore is pale glass in daylight; Night tide is glass lit from behind.">
+            <ThemeChoice />
+          </Setting>
+        </Group>
         <Group title="Library">
           <Setting
             label="Sync library"

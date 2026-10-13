@@ -1,35 +1,28 @@
 // Shared controls and pieces, so spacing, type and motion stay consistent.
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { motion as native, type EventPayload, type MotionProps, type Props, type StyleDesc } from "@gpuix/react";
+import { Glass, TINTS, ink, mixOklab, type Tint } from "./glass";
 import { Icon, type IconName } from "./icons";
 import { imageUrl, type Album, type Artist } from "./library";
 import { albumMenu, artistMenu } from "./menus";
 import { go, openMenu, play, useStore } from "./store";
-import { C, SIZE, alpha, center, column, ellipsis, motion, radius, row, text } from "./theme";
+import { C, SIZE, alpha, center, column, ellipsis, motion, radius, row, text, theme } from "./theme";
 
 type Click = (event: EventPayload) => void;
 
 // motion.div's published types are narrow, but it passes every prop through.
 export const Motion = native.div as unknown as ComponentType<Props & MotionProps>;
 
+/** Filled and tonal buttons are pieces of glass; ghost ones are only ink. */
 export type Tone = "filled" | "tonal" | "ghost";
 
-const toneStyle = (tone: Tone): StyleDesc =>
-  tone === "filled"
-    ? { backgroundColor: C.primary, color: C.onPrimary, hover: { backgroundColor: "#ad9cff" }, active: { opacity: 0.85 } }
-    : tone === "tonal"
-      ? {
-          backgroundColor: C.primaryContainer,
-          color: C.onPrimaryContainer,
-          hover: { backgroundColor: "#3b3666" },
-          active: { opacity: 0.85 },
-        }
-      : { backgroundColor: alpha(C.text, 0.06), color: C.text, hover: { backgroundColor: alpha(C.text, 0.1) } };
+const ghost = (): StyleDesc => ({ backgroundColor: alpha(C.text, 0.06), hover: { backgroundColor: alpha(C.text, 0.1) } });
 
 export function Button({
   label,
   icon,
   tone = "ghost",
+  tint = TINTS.jelly,
   onClick,
   style,
   height = 44,
@@ -37,11 +30,12 @@ export function Button({
   label: string;
   icon?: IconName;
   tone?: Tone;
+  tint?: Tint;
   onClick?: Click;
   style?: StyleDesc;
   height?: number;
 }) {
-  const color = tone === "filled" ? C.onPrimary : tone === "tonal" ? C.onPrimaryContainer : C.text;
+  const color = tone === "ghost" ? C.text : ink(tint, tone);
   return (
     <div
       role="button"
@@ -51,6 +45,7 @@ export function Button({
       onKeyDown={(e) => (e.key === "enter" || e.key === "space") && onClick?.(e)}
       style={{
         ...row,
+        position: "relative",
         height,
         gap: 10,
         paddingLeft: height / 2 - 2,
@@ -58,10 +53,11 @@ export function Button({
         borderRadius: height / 2,
         flexShrink: 0,
         cursor: "pointer",
-        ...toneStyle(tone),
+        ...(tone === "ghost" ? ghost() : {}),
         ...style,
       }}
     >
+      {tone !== "ghost" && <Glass tint={tint} variant={tone} radius={height / 2} interactive />}
       {icon && <Icon name={icon} size={18} color={color} />}
       <text style={{ fontSize: 14, fontWeight: 600, color, whiteSpace: "nowrap" }}>{label}</text>
     </div>
@@ -71,17 +67,21 @@ export function Button({
 /** Joined buttons, as on Android: round outer ends, tight inner corners. */
 export function ButtonGroup({
   items,
+  tint = TINTS.jelly,
 }: {
-  items: { label?: string; icon: IconName; tone: Tone; onClick: Click; aria?: string }[];
+  items: { label?: string; icon: IconName; tone: Exclude<Tone, "ghost">; onClick: Click; aria?: string }[];
+  tint?: Tint;
 }) {
   return (
-    <div style={{ ...row, gap: 3 }}>
+    <div style={{ ...row, gap: 4 }}>
       {items.map((item, index) => {
         const first = index === 0;
         const last = index === items.length - 1;
-        const outer = 24;
-        const inner = 6;
-        const color = item.tone === "filled" ? C.onPrimary : C.onPrimaryContainer;
+        const outer = 22;
+        const inner = 7;
+        const color = ink(tint, item.tone);
+        const left = first ? outer : inner;
+        const right = last ? outer : inner;
         return (
           <div
             key={index}
@@ -98,14 +98,11 @@ export function ButtonGroup({
               paddingRight: item.label ? 20 : 0,
               width: item.label ? undefined : last ? 50 : 46,
               justifyContent: "center",
-              borderTopLeftRadius: first ? outer : inner,
-              borderBottomLeftRadius: first ? outer : inner,
-              borderTopRightRadius: last ? outer : inner,
-              borderBottomRightRadius: last ? outer : inner,
+              position: "relative",
               cursor: "pointer",
-              ...toneStyle(item.tone),
             }}
           >
+            <Glass tint={tint} variant={item.tone} radius={[left, right, right, left]} interactive />
             <Icon name={item.icon} size={item.label ? 18 : 20} color={color} />
             {item.label && <text style={{ fontSize: 14, fontWeight: 600, color, whiteSpace: "nowrap" }}>{item.label}</text>}
           </div>
@@ -115,15 +112,19 @@ export function ButtonGroup({
   );
 }
 
+/** A round icon button. While `active` it becomes a piece of `tint`; give
+ * `glass` to make it one always. */
 export function IconButton({
   icon,
   label,
   onClick,
   size = 36,
   iconSize = 20,
-  color = C.muted,
+  color,
   active,
-  activeColor = C.primary,
+  tint = TINTS.jelly,
+  glass,
+  live,
   style,
 }: {
   icon: IconName;
@@ -133,35 +134,42 @@ export function IconButton({
   iconSize?: number;
   color?: string;
   active?: boolean;
-  activeColor?: string;
+  tint?: Tint;
+  /** Always glass, of this variant. */
+  glass?: "tonal" | "filled" | "pearl";
+  live?: boolean;
   style?: StyleDesc;
 }) {
+  const variant = glass ?? (active ? "tonal" : undefined);
+  const shown = variant ? ink(tint, variant) : (color ?? C.muted);
   return (
     <div
       role="button"
       aria-label={label}
+      aria-pressed={active}
       tabIndex={0}
       onClick={onClick}
       onKeyDown={(e) => (e.key === "enter" || e.key === "space") && onClick?.(e)}
       style={{
         ...center,
+        position: "relative",
         width: size,
         height: size,
         flexShrink: 0,
         borderRadius: size / 2,
         cursor: "pointer",
-        color: active ? activeColor : color,
-        hover: { backgroundColor: C.surfaceHigh, color: active ? activeColor : C.text },
+        hover: variant ? undefined : { backgroundColor: alpha(C.text, 0.07) },
         ...style,
       }}
     >
-      <Icon name={icon} size={iconSize} color={active ? activeColor : color} />
+      {variant && <Glass tint={tint} variant={variant} radius={size / 2} live={live} interactive />}
+      <Icon name={icon} size={iconSize} color={shown} />
     </div>
   );
 }
 
 export function Chip({ label, on, onClick, icon }: { label: string; on?: boolean; onClick?: Click; icon?: IconName }) {
-  const color = on ? "#1b1640" : C.muted;
+  const color = on ? ink(TINTS.jelly, "tonal") : C.muted;
   return (
     <div
       role="button"
@@ -169,6 +177,7 @@ export function Chip({ label, on, onClick, icon }: { label: string; on?: boolean
       onClick={onClick}
       style={{
         ...row,
+        position: "relative",
         height: 34,
         paddingLeft: icon ? 12 : 14,
         paddingRight: 14,
@@ -176,10 +185,11 @@ export function Chip({ label, on, onClick, icon }: { label: string; on?: boolean
         borderRadius: 17,
         flexShrink: 0,
         cursor: "pointer",
-        backgroundColor: on ? C.onPrimaryContainer : C.surface,
-        hover: on ? undefined : { backgroundColor: C.surfaceHigh },
+        backgroundColor: on ? undefined : alpha(C.text, 0.05),
+        hover: on ? undefined : { backgroundColor: alpha(C.text, 0.09) },
       }}
     >
+      {on && <Glass tint={TINTS.jelly} radius={17} interactive />}
       {icon && <Icon name={icon} size={16} color={color} />}
       <text style={{ fontSize: 13, fontWeight: 600, color, whiteSpace: "nowrap" }}>{label}</text>
     </div>
@@ -196,7 +206,7 @@ export function Segmented<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div style={{ ...row, gap: 2, padding: 3, borderRadius: 12, backgroundColor: C.surface, flexShrink: 0 }}>
+    <div style={{ ...row, gap: 2, padding: 3, borderRadius: 12, backgroundColor: alpha(C.text, 0.05), flexShrink: 0 }}>
       {options.map((option) => {
         const on = option.value === value;
         return (
@@ -208,14 +218,15 @@ export function Segmented<T extends string>({
             onClick={() => onChange(option.value)}
             style={{
               ...center,
+              position: "relative",
               width: 34,
               height: 28,
               borderRadius: 9,
               cursor: "pointer",
-              backgroundColor: on ? C.surfaceHigher : C.surface,
             }}
           >
-            <Icon name={option.icon} size={16} color={on ? C.text : C.muted} />
+            {on && <Glass tint={TINTS.frost} variant="pearl" radius={9} />}
+            <Icon name={option.icon} size={16} color={on ? ink(TINTS.frost, "pearl") : C.muted} />
           </div>
         );
       })}
@@ -253,7 +264,7 @@ export function Artwork({
     height: size,
     flexShrink: 0,
     borderRadius: corner,
-    ...(shadow ? { boxShadow: { offsetX: 0, offsetY: 8, blurRadius: 24, spreadRadius: 0, color: "#00000059" } } : {}),
+    ...(shadow ? { boxShadow: artShadow(size) } : {}),
     ...style,
   };
   if (!src) {
@@ -276,6 +287,18 @@ export function Artwork({
       style={{ ...box, backgroundColor: C.surfaceHigh }}
     />
   );
+}
+
+/** Art casts a soft shadow, deeper at night; bigger art sits higher. */
+export function artShadow(size: number) {
+  const lift = Math.min(1, size / 240);
+  return {
+    offsetX: 0,
+    offsetY: Math.round(6 + 10 * lift),
+    blurRadius: Math.round(12 + 16 * lift),
+    spreadRadius: -Math.round(4 + 6 * lift),
+    color: theme.name === "shore" ? "#0a1e1c4d" : "#00000099",
+  };
 }
 
 /** `value`, once it has held for a moment. */
@@ -332,12 +355,11 @@ function PlayBadge({ visible, onClick, size = 44 }: { visible: boolean; onClick:
         width: size,
         height: size,
         borderRadius: size / 2,
-        backgroundColor: C.primary,
         cursor: "pointer",
-        boxShadow: { offsetX: 0, offsetY: 8, blurRadius: 18, spreadRadius: 0, color: "#00000073" },
       }}
     >
-      <Icon name="play" size={20} color={C.onPrimary} />
+      <Glass tint={TINTS.jelly} variant="filled" radius={size / 2} interactive />
+      <Icon name="play" size={20} color={ink(TINTS.jelly, "filled")} />
     </Motion>
   );
 }
@@ -469,12 +491,17 @@ export function SectionHead({ title, action, onAction }: { title: string; action
   );
 }
 
-/** Soft color from the artwork, behind the top of a page. Each blob is only a
- * wide blurred shadow: GPUI paints a shadow under its box too, so with no fill
- * of its own the blob has no hard edge. */
+/** Soft color from the artwork, behind the top of a page, as light through
+ * glass falls on the ground. Each blob is only a wide blurred shadow: GPUI
+ * paints a shadow under its box too, so with no fill of its own the blob has
+ * no hard edge, and it fades out on its own before the page's bottom edge. */
 export function Ambient({ palette, height = 460, strength = 1 }: { palette?: [string, string, string]; height?: number; strength?: number }) {
   const width = useContentWidth() + SIZE.page * 2;
   if (!palette) return null;
+  const shore = theme.name === "shore";
+  // Pale pools on the shore; at night, deep color in the water, not glow.
+  const tone = (color: string) => (shore ? mixOklab(color, "#ffffff", 0.45) : mixOklab(color, "#000000", 0.25));
+  const level = (shore ? 0.55 : 0.45) * strength;
   const blob = (color: string, left: number, top: number, size: number, opacity: number) => (
     <div
       style={{
@@ -484,33 +511,16 @@ export function Ambient({ palette, height = 460, strength = 1 }: { palette?: [st
         width: size,
         height: size * 0.62,
         borderRadius: size,
-        opacity: opacity * strength,
-        boxShadow: { offsetX: 0, offsetY: 0, blurRadius: 240, spreadRadius: 60, color },
+        opacity: opacity * level,
+        boxShadow: { offsetX: 0, offsetY: 0, blurRadius: Math.round(height * 0.32), spreadRadius: 40, color: tone(color) },
       }}
     />
   );
   return (
-    <div style={{ position: "absolute", left: 0, right: 0, top: 0, height, overflow: "hidden", pointerEvents: "none" }}>
-      {blob(palette[0], -80, -170, 380, 0.75)}
-      {blob(palette[1], width * 0.42, -210, 360, 0.55)}
-      {blob(palette[2], width * 0.82, -60, 320, 0.4)}
-      <div
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          height: Math.round(height * 0.55),
-          background: {
-            type: "linear-gradient",
-            angle: 180,
-            stops: [
-              { color: alpha(C.bg, 0), position: 0 },
-              { color: C.bg, position: 1 },
-            ],
-          },
-        }}
-      />
+    <div style={{ position: "absolute", left: 0, right: 0, top: 0, height, pointerEvents: "none" }}>
+      {blob(palette[0], -80, -200, 380, 1)}
+      {blob(palette[1], width * 0.42, -240, 360, 0.75)}
+      {blob(palette[2], width * 0.82, -110, 320, 0.55)}
     </div>
   );
 }
@@ -525,4 +535,4 @@ export function Empty({ title, detail, children }: { title: string; detail?: str
   );
 }
 
-export const pageTitle: StyleDesc = { ...text.display(44), lineHeight: 50 };
+export const pageTitle = (): StyleDesc => ({ ...text.display(44), lineHeight: 50 });

@@ -12,6 +12,7 @@ import {
   SectionHead,
   Shelf,
 } from "./components";
+import { tintFrom } from "./glass";
 import { format, longDuration, plural, type Artist, type Song } from "./library";
 import { albumMenu, artistMenu } from "./menus";
 import { Page, Pad, usePalette } from "./page";
@@ -26,7 +27,7 @@ import {
   useStore,
 } from "./store";
 import { ALBUM_ROW_HEIGHT, ROW_HEIGHT, TrackHeader, TrackRow, useCurrentId } from "./tracks";
-import { C, SIZE, alpha, column, ellipsis, row, text } from "./theme";
+import { C, SIZE, alpha, column, ellipsis, radius, row, text } from "./theme";
 
 function DetailHeader({
   art,
@@ -135,6 +136,7 @@ export function AlbumPage({ id }: { id: string }) {
       node: () => (
         <Actions>
           <ButtonGroup
+            tint={tintFrom(palette?.[0])}
             items={[
               { label: "Play", icon: "play", tone: "filled", onClick: () => play(list) },
               { label: "Shuffle", icon: "shuffle", tone: "tonal", onClick: () => play(list, 0, true) },
@@ -266,7 +268,20 @@ export function ArtistPage({ id }: { id: string }) {
       node: () => (
         <div style={{ position: "relative", height: 340, overflow: "hidden" }}>
           {backdrop && (
-            <img src={backdrop} objectFit="cover" style={{ position: "absolute", left: 0, top: -40, width: "100%", height: 420, opacity: 0.7 }} />
+            <img
+              src={backdrop}
+              objectFit="cover"
+              style={{
+                position: "absolute",
+                left: 0,
+                top: -40,
+                width: "100%",
+                height: 420,
+                opacity: 0.6,
+                borderTopLeftRadius: radius.slab,
+                borderTopRightRadius: radius.slab,
+              }}
+            />
           )}
           {!backdrop && <Ambient palette={palette} height={340} />}
           <div
@@ -280,8 +295,8 @@ export function ArtistPage({ id }: { id: string }) {
                 type: "linear-gradient",
                 angle: 180,
                 stops: [
-                  { color: alpha(C.bg, 0.1), position: 0.2 },
-                  { color: C.bg, position: 1 },
+                  { color: alpha(C.bg, 0.05), position: 0.2 },
+                  { color: alpha(C.bg, 0.94), position: 1 },
                 ],
               },
             }}
@@ -315,6 +330,7 @@ export function ArtistPage({ id }: { id: string }) {
         <Pad top={20}>
           <div style={{ ...row, gap: 10, paddingBottom: 8 }}>
             <ButtonGroup
+              tint={tintFrom(palette?.[0])}
               items={[
                 { label: "Play", icon: "play", tone: "filled", onClick: () => play(all) },
                 { label: "Shuffle", icon: "shuffle", tone: "tonal", onClick: () => play(all, 0, true) },
@@ -433,6 +449,7 @@ export function PlaylistPage({ id }: { id: string }) {
       />
       <Actions>
         <ButtonGroup
+          tint={tintFrom(palette?.[0])}
           items={[
             { label: "Play", icon: "play", tone: "filled", onClick: () => play(list) },
             { label: "Shuffle", icon: "shuffle", tone: "tonal", onClick: () => play(list, 0, true) },

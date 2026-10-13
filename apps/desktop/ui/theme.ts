@@ -1,31 +1,71 @@
 import type { StyleDesc } from "@gpuix/react";
 
-/** Aurelia's dark palette, shared with the Android app. */
-export const C = {
-  frame: "#0b0c10",
-  bg: "#111318",
-  surface: "#191b22",
-  surfaceLow: "#15171d",
-  surfaceHigh: "#252832",
-  surfaceHigher: "#2d303b",
-  text: "#f1f0f8",
-  muted: "#a6a4b2",
-  faint: "#6f6d7c",
-  primary: "#9b86ff",
-  onPrimary: "#15122b",
-  primaryContainer: "#302c55",
-  onPrimaryContainer: "#e7dfff",
-  pink: "#ff7ca8",
-  orange: "#ffb36d",
-  green: "#6fd3a0",
-  error: "#ff8a8a",
-  hairline: "#ffffff0f",
-  hover: "#ffffff0b",
-  pressed: "#ffffff14",
-  selected: "#9b86ff24",
-  overlay: "#1f212a",
-  overlayHover: "#2a2c37",
-} as const;
+export type ThemeName = "shore" | "night";
+
+/** Night tide: dark, the glass lit from behind. */
+const NIGHT = {
+  frame: "#09090f",
+  bg: "#11121b",
+  surface: "#1a1b28",
+  surfaceLow: "#141520",
+  surfaceHigh: "#242536",
+  surfaceHigher: "#2e2f42",
+  text: "#eef0f7",
+  muted: "#a6a9bc",
+  faint: "#6d7085",
+  primary: "#c9c4ff",
+  onPrimary: "#221f6b",
+  primaryContainer: "#2b2869",
+  onPrimaryContainer: "#e9e6ff",
+  pink: "#f3a9bd",
+  orange: "#ffc98a",
+  green: "#8fe0bd",
+  error: "#ff9b9b",
+  hairline: "#ffffff12",
+  hover: "#ffffff0d",
+  pressed: "#ffffff17",
+  selected: "#bdb6ff26",
+  overlay: "#1a1b28",
+  overlayHover: "#25263a",
+};
+
+/** Shore: pale, the glass lit from above. */
+const SHORE: typeof NIGHT = {
+  frame: "#ebf0ee",
+  bg: "#f1f5f4",
+  surface: "#f7faf9",
+  surfaceLow: "#eef3f1",
+  surfaceHigh: "#e3eae8",
+  surfaceHigher: "#d8e1de",
+  text: "#13211f",
+  muted: "#4b5e5b",
+  faint: "#6f817e",
+  primary: "#4d44c5",
+  onPrimary: "#ffffff",
+  primaryContainer: "#cbc9f7",
+  onPrimaryContainer: "#221f6b",
+  pink: "#a12c53",
+  orange: "#a85e0a",
+  green: "#22876c",
+  error: "#b3261e",
+  hairline: "#13211f14",
+  hover: "#13211f0a",
+  pressed: "#13211f14",
+  selected: "#4d44c51f",
+  overlay: "#f8fbfa",
+  overlayHover: "#e9efed",
+};
+
+/** The current theme's colors. They change in place when the theme does, so
+ * read them while rendering; the root re-renders everything on a change. */
+export const C: typeof NIGHT = { ...NIGHT };
+
+export const theme = { name: "night" as ThemeName };
+
+export function applyTheme(name: ThemeName) {
+  theme.name = name;
+  Object.assign(C, name === "shore" ? SHORE : NIGHT);
+}
 
 /** Bundled static cuts of Google Sans Flex with rounded corners. */
 export const F = {
@@ -38,12 +78,14 @@ export const SIZE = {
   sidebar: 264,
   sidebarCollapsed: 76,
   panel: 360,
-  player: 88,
+  /** The player dock and the gap around it. */
+  player: 96,
+  dock: 80,
   gutter: 8,
   page: 32,
 } as const;
 
-export const radius = { sm: 8, md: 10, lg: 14, xl: 20, round: 999 } as const;
+export const radius = { sm: 8, md: 10, lg: 14, xl: 20, slab: 26, round: 999 } as const;
 
 export const motion = {
   fast: 0.12,

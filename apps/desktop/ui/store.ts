@@ -16,6 +16,7 @@ import {
   type SongData,
   type SyncStatus,
 } from "./native";
+import { applyTheme, type ThemeName } from "./theme";
 
 export type Route =
   | { name: "home" }
@@ -38,6 +39,8 @@ export type Menu = { x: number; y: number; items: MenuItem[]; width?: number };
 export type Mix = { seed: string; title: string; subtitle: string; covers: string[]; songs: string[] };
 
 export type AlbumSort = "added" | "title" | "artist" | "year" | "plays";
+/** Follow the system's light or dark appearance, or keep one. */
+export type ThemePref = "system" | ThemeName;
 export type SongSort = { key: "title" | "album" | "artist" | "added" | "plays" | "duration"; dir: 1 | -1 };
 
 export type State = {
@@ -78,6 +81,9 @@ export type State = {
   /** Favorites live on the songs; this moves when one changes. */
   favVersion: number;
   dialog: { kind: "newPlaylist"; ids: string[]; name: string } | null;
+  themePref: ThemePref;
+  /** The theme showing: the preference, or the system's appearance. */
+  theme: ThemeName;
 };
 
 const initial: State = {
@@ -124,6 +130,8 @@ const initial: State = {
   login: { busy: false, error: null },
   favVersion: 0,
   dialog: null,
+  themePref: "system",
+  theme: "night",
 };
 
 type Store = { state: State; listeners: Set<() => void> };
@@ -133,6 +141,8 @@ declare global {
 }
 // Kept across hot reloads, so saving a component keeps the page and queue.
 const store: Store = (globalThis.__aureliaStore ??= { state: initial, listeners: new Set() });
+// A hot reload starts the theme module over; show the theme the state kept.
+applyTheme(store.state.theme);
 
 export function get(): State {
   return store.state;
@@ -158,6 +168,7 @@ export function useStore<T>(select: (state: State) => T): T {
 // ---- Startup, session and sync -------------------------------------------
 
 export async function boot() {
+  loadThemePref();
   const { session, synced } = await request<{ session: Session | null; synced: boolean }>({ type: "init" });
   if (!session) return set({ stage: "login", session: null });
   set({ session });
@@ -320,10 +331,37 @@ export function onPoll(
     window.active !== s.window.active ||
     window.width !== s.window.width ||
     window.height !== s.window.height ||
-    window.scale !== s.window.scale
+    window.scale !== s.window.scale ||
+    window.dark !== s.window.dark
   )
     patch.window = window;
   if (Object.keys(patch).length) set(patch);
+  if (patch.window) resolveTheme();
+}
+
+// ---- Theme --------------------------------------------------------------------
+
+/** Show the preferred theme, or the system's when following it. */
+export function resolveTheme() {
+  const s = get();
+  const name: ThemeName = s.themePref === "system" ? (s.window.dark ? "night" : "shore") : s.themePref;
+  if (name === s.theme) return;
+  applyTheme(name);
+  set({ theme: name });
+}
+
+export function setThemePref(themePref: ThemePref) {
+  set({ themePref });
+  resolveTheme();
+  request({ type: "setSetting", key: "theme", value: themePref === "system" ? null : themePref }).catch(() => {});
+}
+
+async function loadThemePref() {
+  try {
+    const value = await request<string | null>({ type: "getSetting", key: "theme" });
+    if (value === "shore" || value === "night") set({ themePref: value });
+  } catch {}
+  resolveTheme();
 }
 
 // ---- Navigation -------------------------------------------------------------

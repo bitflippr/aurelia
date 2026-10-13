@@ -108,6 +108,8 @@ struct Settings {
     padding_y: f32,
     edge_fade: f32,
     color: String,
+    /// The line being sung, as it fills; `color` when empty.
+    active_color: String,
     anchor: f32,
     unsung_alpha: f32,
     past_alpha: f32,
@@ -162,6 +164,7 @@ impl Default for Settings {
             padding_y: 12.0,
             edge_fade: 36.0,
             color: "#ffffff".into(),
+            active_color: String::new(),
             anchor: 0.38,
             unsung_alpha: 0.45,
             past_alpha: 0.3,
@@ -1020,10 +1023,14 @@ impl State {
         let color = crate::color::parse_color_rgba(&settings.color)
             .map(Hsla::from)
             .unwrap_or_else(white);
+        let active = crate::color::parse_color_rgba(&settings.active_color)
+            .map(Hsla::from)
+            .unwrap_or(color);
         let painter = Painter {
             origin: bounds.origin,
             height,
             color,
+            active,
             settings,
             time,
         };
@@ -1097,6 +1104,8 @@ struct Painter<'a> {
     origin: Point<Pixels>,
     height: f32,
     color: Hsla,
+    /// Sung text on the current line.
+    active: Hsla,
     settings: &'a Settings,
     time: i64,
 }
@@ -1116,16 +1125,29 @@ impl Painter<'_> {
     }
 
     fn glyph(&self, window: &mut Window, glyph: &Glyph, at: (f32, f32), size: f32, alpha: f32) {
+        self.glyph_in(window, glyph, at, size, alpha, self.color);
+    }
+
+    fn glyph_in(
+        &self,
+        window: &mut Window,
+        glyph: &Glyph,
+        at: (f32, f32),
+        size: f32,
+        alpha: f32,
+        color: Hsla,
+    ) {
         // Quantized so a growing line reuses rasterized glyphs.
         let size = px((size * 4.0).round() / 4.0);
         if glyph.emoji {
             let _ = window.paint_emoji(self.point(at), glyph.font_id, glyph.id, size);
         } else if alpha > 0.002 {
             let color = Hsla {
-                a: self.color.a * alpha,
-                ..self.color
+                a: color.a * alpha,
+                ..color
             };
-            let _ = window.paint_glyph_unsnapped(self.point(at), glyph.font_id, glyph.id, size, color);
+            let _ =
+                window.paint_glyph_unsnapped(self.point(at), glyph.font_id, glyph.id, size, color);
         }
     }
 
@@ -1156,6 +1178,7 @@ impl Painter<'_> {
         let block = &row.text;
         let em = block.font_size;
         let active = line.active(time);
+        let lit = if active { self.active } else { self.color };
         // Unsung text keeps the same brightness while its line fades in.
         let dim = (s.unsung_alpha / opacity.max(0.001)).min(1.0);
         for (glyph, part) in block.glyphs.iter().zip(&row.parts) {
@@ -1174,7 +1197,7 @@ impl Painter<'_> {
                 };
                 let at = place.map(left, baseline);
                 let alpha = opacity * layer * self.edge(at.1 - em * 0.35);
-                self.glyph(window, glyph, at, em * place.scale, alpha);
+                self.glyph_in(window, glyph, at, em * place.scale, alpha, lit);
                 continue;
             };
 
@@ -1220,8 +1243,8 @@ impl Painter<'_> {
                     Corners::all(px(ink.min(width) / 2.0)),
                     &[BoxShadow {
                         color: Hsla {
-                            a: self.color.a * s.glow_alpha * pulse * opacity * edge,
-                            ..self.color
+                            a: lit.a * s.glow_alpha * pulse * opacity * edge,
+                            ..lit
                         },
                         offset: point(px(0.0), px(0.0)),
                         blur_radius: px(s.glow_blur * em * scale),
@@ -1232,7 +1255,7 @@ impl Painter<'_> {
             }
 
             let Some((fill, along)) = part.fill else {
-                self.glyph(window, glyph, at, em * scale, opacity * edge);
+                self.glyph_in(window, glyph, at, em * scale, opacity * edge, lit);
                 continue;
             };
             let timing = &line.timings[fill];
@@ -1242,19 +1265,19 @@ impl Painter<'_> {
             let total = row.fill_widths[fill].max(1.0);
             let feather = total * s.feather;
             let sweep = progress * (total + feather) - feather / 2.0;
-            let (lit, unlit) = (sweep - feather / 2.0, sweep + feather / 2.0);
-            if progress >= 1.0 || along + glyph.width <= lit {
-                self.glyph(window, glyph, at, em * scale, opacity * edge);
+            let (sung, unlit) = (sweep - feather / 2.0, sweep + feather / 2.0);
+            if progress >= 1.0 || along + glyph.width <= sung {
+                self.glyph_in(window, glyph, at, em * scale, opacity * edge, lit);
             } else if progress <= 0.0 || along >= unlit {
                 self.glyph(window, glyph, at, em * scale, opacity * dim * edge);
             } else {
                 // The glyph straddles the sweep: paint it once per slice, each
                 // clipped to its stretch, from lit through the feather to dim.
                 let steps = s.sweep_steps.max(1.0) as usize;
-                let mut cuts = vec![(f32::NEG_INFINITY, lit, 1.0)];
+                let mut cuts = vec![(f32::NEG_INFINITY, sung, 1.0)];
                 for step in 0..steps {
-                    let from = lit + feather * step as f32 / steps as f32;
-                    let to = lit + feather * (step + 1) as f32 / steps as f32;
+                    let from = sung + feather * step as f32 / steps as f32;
+                    let to = sung + feather * (step + 1) as f32 / steps as f32;
                     let t = (step as f32 + 0.5) / steps as f32;
                     cuts.push((from, to, 1.0 + (dim - 1.0) * t));
                 }
@@ -1284,13 +1307,30 @@ impl Painter<'_> {
                             size(px(x1 - x0), px(ink_height)),
                         ),
                     };
+                    // Sung text turns `lit` through the feather.
+                    let toward = ((1.0 - layer) / (1.0 - dim).max(0.001)).clamp(0.0, 1.0);
+                    let color = blend(lit, self.color, toward);
                     window.with_content_mask(Some(mask), |window| {
-                        self.glyph(window, glyph, at, em * scale, opacity * layer * edge);
+                        self.glyph_in(window, glyph, at, em * scale, opacity * layer * edge, color);
                     });
                 }
             }
         }
     }
+}
+
+/// `from` moved `t` of the way to `to`.
+fn blend(from: Hsla, to: Hsla, t: f32) -> Hsla {
+    if t <= 0.0 || from == to {
+        return from;
+    }
+    let (a, b) = (Rgba::from(from), Rgba::from(to));
+    Hsla::from(Rgba {
+        r: a.r + (b.r - a.r) * t,
+        g: a.g + (b.g - a.g) * t,
+        b: a.b + (b.b - a.b) * t,
+        a: a.a + (b.a - a.a) * t,
+    })
 }
 
 fn smooth(value: f32) -> f32 {

@@ -3,8 +3,9 @@
 // animates them the way the Android app does. Every number that shapes that
 // look is in `ANDROID` below, so tuning it hot-reloads.
 import { createElement, useEffect } from "react";
+import { useNowTint } from "./glass";
 import { ensureLyrics, useStore } from "./store";
-import { column, F } from "./theme";
+import { C, alpha, column, F } from "./theme";
 
 type Size = "panel" | "full";
 
@@ -100,6 +101,8 @@ const SETTINGS: Record<Size, typeof ANDROID> = { panel: scaled(24), full: scaled
 export function Lyrics({ size }: { size: Size }) {
   const songId = useStore((s) => s.queue.find((e) => e.entry === s.player.current)?.id);
   const lyrics = useStore((s) => (songId ? s.lyrics[songId] : undefined));
+  const theme = useStore((s) => s.theme);
+  const tint = useNowTint();
   useEffect(() => ensureLyrics(songId), [songId]);
   if (!songId) return <Message size={size} text="Lyrics appear here while a song plays." />;
   if (!lyrics || lyrics === "loading") return <Message size={size} text="" />;
@@ -110,7 +113,9 @@ export function Lyrics({ size }: { size: Size }) {
       {createElement("aurelia-lyrics", {
         key: songId,
         lyrics,
-        settings: SETTINGS[size],
+        // Sung text takes the album's deep tone on the shore; at night the
+        // line being sung fluoresces.
+        settings: { ...SETTINGS[size], color: C.text, activeColor: theme === "shore" ? tint.d : tint.u },
         style: { flexGrow: 1, minHeight: 0, width: "100%" },
       })}
     </div>
@@ -120,7 +125,7 @@ export function Lyrics({ size }: { size: Size }) {
 function Message({ size, text }: { size: Size; text: string }) {
   return (
     <div style={{ ...column, flexGrow: 1, justifyContent: "center", alignItems: "center", padding: 24 }}>
-      <text style={{ fontSize: size === "full" ? 18 : 14, color: "#ffffff8c", textAlign: "center" }}>{text}</text>
+      <text style={{ fontSize: size === "full" ? 18 : 14, color: C.muted, textAlign: "center" }}>{text}</text>
     </div>
   );
 }
@@ -144,7 +149,7 @@ function Plain({ size, lines }: { size: Size; lines: string[] }) {
       }}
     >
       {lines.map((line, i) => (
-        <text key={i} style={{ fontSize: font, lineHeight: font * 1.3, fontWeight: 700, color: "#ffffffb8", textAlign: "center", width: "100%" }}>
+        <text key={i} style={{ fontSize: font, lineHeight: font * 1.3, fontWeight: 700, color: alpha(C.text, 0.72), textAlign: "center", width: "100%" }}>
           {line || " "}
         </text>
       ))}
