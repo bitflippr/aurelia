@@ -1,9 +1,9 @@
 // The player bar, the queue, and the full-window player.
-import { createElement, useEffect, useRef, useState } from "react";
+import { createElement, useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, type EventPayload } from "@gpuix/react";
 import { Artwork, IconButton, Motion, artShadow } from "./components";
 import { Glass, TINTS, accent, ink, inkSoft, useNowPalette, useNowTint, type Tint } from "./glass";
-import { Icon } from "./icons";
+import { Icon, type IconName } from "./icons";
 import { duration, format, plural, type Song } from "./library";
 import { Lyrics } from "./lyrics";
 import { songMenu } from "./menus";
@@ -199,68 +199,165 @@ function Volume({ tint }: { tint: Tint }) {
 
 /** Playback controls. Play is a piece of the album's glass that drifts while
  * it plays and fluoresces at night; shuffle and repeat turn to glass when on. */
-function Transport({ size = "bar", tint }: { size?: "bar" | "full"; tint: Tint }) {
+function Transport({ tint }: { tint: Tint }) {
   const playing = useStore((s) => s.player.playing);
   const loading = useStore((s) => s.player.loading);
   const shuffle = useStore((s) => s.player.shuffle);
   const repeat = useStore((s) => s.player.repeat);
-  const full = size === "full";
-  const play = full ? 76 : 42;
-  const side = full ? 64 : 36;
-  const corner = playing ? (full ? 26 : 15) : play / 2;
-  // White glass on the shore; at night clear glass turns green at its edges,
-  // which fights the album's color, so the album's own glass instead.
-  const around = theme.name === "shore" ? TINTS.frost : tint;
+  const corner = playing ? 15 : 21;
   return (
-    <div style={{ ...row, gap: full ? 0 : 10, justifyContent: full ? "space-between" : "center", width: full ? "100%" : undefined }}>
+    <div style={{ ...row, gap: 10, justifyContent: "center" }}>
       <IconButton
         icon="shuffle"
         label={shuffle ? "Turn shuffle off" : "Shuffle"}
         active={shuffle}
         tint={tint}
-        size={full ? 48 : 36}
-        iconSize={full ? 20 : 18}
+        size={36}
+        iconSize={18}
         onClick={() => command("shuffle")}
       />
-      <IconButton
-        icon="prev"
-        label="Previous"
-        glass={full ? "tonal" : undefined}
-        tint={around}
-        color={C.muted}
-        size={side}
-        iconSize={full ? 26 : 22}
-        onClick={() => command("previous")}
-      />
+      <IconButton icon="prev" label="Previous" color={C.muted} size={36} iconSize={22} onClick={() => command("previous")} />
       <div
         role="button"
         aria-label={playing ? "Pause" : "Play"}
         onClick={() => command("toggle")}
-        style={{ ...center, position: "relative", width: play, height: play, borderRadius: corner, cursor: "pointer", opacity: loading ? 0.6 : 1 }}
+        style={{ ...center, position: "relative", width: 42, height: 42, borderRadius: corner, cursor: "pointer", opacity: loading ? 0.6 : 1 }}
       >
         {/* It fluoresces only while music plays; paused, it is plain glass. */}
         <Glass tint={tint} variant="filled" radius={corner} live={playing} interactive />
-        <Icon name={playing ? "pause" : "play"} size={full ? 32 : 20} color={ink(tint, "filled")} />
+        <Icon name={playing ? "pause" : "play"} size={20} color={ink(tint, "filled")} />
       </div>
-      <IconButton
-        icon="next"
-        label="Next"
-        glass={full ? "tonal" : undefined}
-        tint={around}
-        color={C.muted}
-        size={side}
-        iconSize={full ? 26 : 22}
-        onClick={() => command("next")}
-      />
+      <IconButton icon="next" label="Next" color={C.muted} size={36} iconSize={22} onClick={() => command("next")} />
       <IconButton
         icon={repeat === "one" ? "repeatOne" : "repeat"}
         label={repeat === "off" ? "Repeat" : repeat === "all" ? "Repeat this song" : "Turn repeat off"}
         active={repeat !== "off"}
         tint={tint}
-        size={full ? 48 : 36}
-        iconSize={full ? 20 : 18}
+        size={36}
+        iconSize={18}
         onClick={() => command("repeat")}
       />
+    </div>
+  );
+}
+
+type Key = "previous" | "toggle" | "next";
+
+/**
+ * The full player's transport, as on Android: previous, play and next share
+ * the width as pills, and a press widens its button for a moment while the
+ * others give way. Play is a pill while paused and squares off as it plays.
+ */
+function FullTransport({ width, tint }: { width: number; tint: Tint }) {
+  const playing = useStore((s) => s.player.playing);
+  const loading = useStore((s) => s.player.loading);
+  const [pressed, setPressed] = useState<Key | null>(null);
+  useEffect(() => {
+    if (!pressed) return;
+    const timer = setTimeout(() => setPressed(null), 250);
+    return () => clearTimeout(timer);
+  }, [pressed]);
+  const height = 76;
+  const gap = 8;
+  const weight = (key: Key) => (pressed === null ? 1 : pressed === key ? 1.2 : 0.7);
+  const total = weight("previous") + weight("toggle") + weight("next");
+  const span = (key: Key) => ((width - gap * 2) * weight(key)) / total;
+  // White glass on the shore; at night clear glass turns green at its edges,
+  // which fights the album's color, so the album's own glass instead.
+  const around = theme.name === "shore" ? TINTS.frost : tint;
+  const corner = playing || loading ? Math.round(height * 0.325) : height / 2;
+  const button = (key: Key, label: string, glass: ReactNode, icon: ReactNode) => (
+    <Motion
+      role="button"
+      aria-label={label}
+      onClick={() => {
+        setPressed(key);
+        command(key);
+      }}
+      initial={false}
+      animate={{ width: span(key) }}
+      transition={{ duration: 0.24, ease: motion.ease }}
+      style={{ ...center, position: "relative", height, flexShrink: 0, cursor: "pointer", opacity: key === "toggle" && loading ? 0.6 : 1 }}
+    >
+      {glass}
+      {icon}
+    </Motion>
+  );
+  return (
+    <div style={{ ...row, gap, width }}>
+      {button("previous", "Previous", <Glass tint={around} radius={height / 2} interactive />, <Icon name="prev" size={28} color={ink(around, "tonal")} />)}
+      {button(
+        "toggle",
+        playing ? "Pause" : "Play",
+        // It fluoresces only while music plays; paused, it is plain glass.
+        <Glass tint={tint} variant="filled" radius={corner} live={playing} interactive />,
+        <Icon name={playing ? "pause" : "play"} size={34} color={ink(tint, "filled")} />,
+      )}
+      {button("next", "Next", <Glass tint={around} radius={height / 2} interactive />, <Icon name="next" size={28} color={ink(around, "tonal")} />)}
+    </div>
+  );
+}
+
+/**
+ * Shuffle, repeat and favorite as one connected group, as on Android: round
+ * outer ends, small inner corners. Off, a button is a faint tint in the group;
+ * on, it fills with the album's glass.
+ */
+function Toggles({ song, tint }: { song: Song; tint: Tint }) {
+  const shuffle = useStore((s) => s.player.shuffle);
+  const repeat = useStore((s) => s.player.repeat);
+  const size = 48;
+  const end = size / 2;
+  const inner = 5;
+  const off = ink(tint, "tonal");
+  const toggle = (
+    icon: IconName,
+    label: string,
+    on: boolean,
+    onClick: () => void,
+    [topLeft, topRight, bottomRight, bottomLeft]: [number, number, number, number],
+  ) => (
+    <div
+      role="button"
+      aria-label={label}
+      aria-pressed={on}
+      onClick={onClick}
+      style={{
+        ...center,
+        position: "relative",
+        width: 56,
+        height: size,
+        cursor: "pointer",
+        borderTopLeftRadius: topLeft,
+        borderTopRightRadius: topRight,
+        borderBottomRightRadius: bottomRight,
+        borderBottomLeftRadius: bottomLeft,
+        backgroundColor: on ? undefined : alpha(off, 0.1),
+        hover: on ? undefined : { backgroundColor: alpha(off, 0.18) },
+      }}
+    >
+      {on && <Glass tint={tint} variant="filled" radius={[topLeft, topRight, bottomRight, bottomLeft]} interactive />}
+      <Icon name={icon} size={22} color={on ? ink(tint, "filled") : off} />
+    </div>
+  );
+  return (
+    <div style={{ ...row, position: "relative", gap: 4, padding: 4, borderRadius: end + 4, alignSelf: "center" }}>
+      <Glass tint={tint} radius={end + 4} />
+      {toggle("shuffle", shuffle ? "Turn shuffle off" : "Shuffle", shuffle, () => command("shuffle"), [end, inner, inner, end])}
+      {toggle(
+        repeat === "one" ? "repeatOne" : "repeat",
+        repeat === "off" ? "Repeat" : repeat === "all" ? "Repeat this song" : "Turn repeat off",
+        repeat !== "off",
+        () => command("repeat"),
+        [inner, inner, inner, inner],
+      )}
+      {toggle(
+        song.fav ? "heartFilled" : "heart",
+        song.fav ? "Remove from Favorites" : "Add to Favorites",
+        song.fav,
+        () => toggleFavorite(song.id),
+        [inner, end, end, inner],
+      )}
     </div>
   );
 }
@@ -509,7 +606,7 @@ function FullPlayerBody() {
   if (!song) return null;
   const w = win.width;
   const h = win.height;
-  const artSize = Math.min(460, Math.max(240, Math.min(w * 0.36, h - 330)));
+  const artSize = Math.min(460, Math.max(240, Math.min(w * 0.36, h - 400)));
 
   const tabs: { key: typeof tab; label: string }[] = [
     { key: "lyrics", label: "Lyrics" },
@@ -560,7 +657,7 @@ function FullPlayerBody() {
               <Artwork id={song.albumId} tag={tag} size={artSize} radius={30} />
             </Motion>
             <div style={{ ...row, gap: 12, marginTop: 28, alignItems: "flex-start" }}>
-              <div style={{ ...column, flexGrow: 1, gap: 4 }}>
+              <div style={{ ...column, flexGrow: 1, minWidth: 0, gap: 4 }}>
                 <text style={{ fontSize: 26, fontWeight: 800, color: C.text, ...ellipsis }}>{song.title}</text>
                 <div style={{ ...row, gap: 6, minWidth: 0 }}>
                   <div
@@ -577,22 +674,15 @@ function FullPlayerBody() {
                 </div>
                 <text style={{ fontSize: 12, fontWeight: 600, color: C.faint, marginTop: 4 }}>{format(song)}</text>
               </div>
-              <IconButton
-                icon={song.fav ? "heartFilled" : "heart"}
-                label={song.fav ? "Remove from Favorites" : "Add to Favorites"}
-                color={C.muted}
-                glass={song.fav ? "tonal" : undefined}
-                tint={TINTS.rose}
-                size={44}
-                iconSize={22}
-                onClick={() => toggleFavorite(song.id)}
-              />
             </div>
             <div style={{ marginTop: 18 }}>
               <Seek height={20} tint={tint} amplitude={3.4} />
             </div>
             <div style={{ marginTop: 14 }}>
-              <Transport size="full" tint={tint} />
+              <FullTransport width={artSize} tint={tint} />
+            </div>
+            <div style={{ ...column, marginTop: 16 }}>
+              <Toggles song={song} tint={tint} />
             </div>
           </div>
           <div style={{ ...column, flexGrow: 1, minWidth: 0 }}>

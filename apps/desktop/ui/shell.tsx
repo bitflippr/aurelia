@@ -462,7 +462,7 @@ function Main() {
   }
   return (
     <div style={{ ...column, flexGrow: 1, minWidth: 0, position: "relative" }}>
-      <Glass variant="panel" radius={radius.slab} />
+      <Glass variant="panel" radius={radius.slab} plain />
       <div style={{ ...column, flexGrow: 1, minHeight: 0, borderRadius: radius.slab, overflow: "hidden" }}>
         <Motion
           key={JSON.stringify(route)}
@@ -474,6 +474,7 @@ function Main() {
           {page}
         </Motion>
       </div>
+      <GroundCaps />
     </div>
   );
 }
@@ -799,6 +800,20 @@ function Syncing() {
 }
 
 // ---- Root ---------------------------------------------------------------------------
+
+/** The ground again past the main panel's rounded top corners. Clipping is
+ * square, so a page's full-width header would otherwise show past the curve. */
+function GroundCaps() {
+  const theme = useStore((s) => s.theme);
+  const colors = useNowPalette();
+  return createElement("aurelia-clouds", {
+    colors,
+    theme,
+    still: true,
+    corners: radius.slab,
+    style: { position: "absolute", left: 0, top: 0, right: 0, bottom: 0, pointerEvents: "none" },
+  });
+}
 
 /** The ground the glass lies on: still pools of the playing album's colors. */
 function Ground() {

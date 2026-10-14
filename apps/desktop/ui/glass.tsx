@@ -39,6 +39,7 @@ export function Glass({
   radius = 0,
   live,
   interactive,
+  plain,
 }: {
   tint?: Tint;
   variant?: GlassVariant;
@@ -48,6 +49,8 @@ export function Glass({
   live?: boolean;
   /** Lifts under the pointer and sinks when pressed. */
   interactive?: boolean;
+  /** A panel without grain: its page lays `<Frost>` under each row instead. */
+  plain?: boolean;
 }) {
   const theme = useStore((s) => s.theme);
   return createElement("aurelia-glass", {
@@ -57,6 +60,22 @@ export function Glass({
     radius,
     live: !!live,
     interactive: !!interactive,
+    plain: !!plain,
+    style: { position: "absolute", left: 0, top: 0, right: 0, bottom: 0 },
+  });
+}
+
+/**
+ * A plain panel's grain, under one row of its page, so the grain scrolls with
+ * the content. Put it first in a box with `position: "relative"`. `trail`
+ * carries it on below the box, under the empty end of a short page.
+ */
+export function Frost({ trail = 0 }: { trail?: number }) {
+  const theme = useStore((s) => s.theme);
+  return createElement("aurelia-glass", {
+    variant: "frost",
+    theme,
+    trail,
     style: { position: "absolute", left: 0, top: 0, right: 0, bottom: 0 },
   });
 }

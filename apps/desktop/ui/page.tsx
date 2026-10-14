@@ -5,7 +5,7 @@ import { isValidElement, useEffect, useRef, useState, type ReactNode } from "rea
 import { AnimatePresence } from "@gpuix/react";
 import { Icon } from "./icons";
 import { Motion } from "./components";
-import { Glass, TINTS, ink, tintFrom } from "./glass";
+import { Frost, Glass, TINTS, ink, tintFrom } from "./glass";
 import { host } from "./native";
 import { get, setScrollReader, useStore } from "./store";
 import { C, SIZE, center, motion, radius, row } from "./theme";
@@ -23,6 +23,8 @@ const WINDOWED = 160;
 const WINDOW = 60;
 /** Past this far into the last header row, the page title has scrolled away. */
 const STICKY_OFFSET = 300;
+/** The last row's frost runs on this far, under the empty end of a short page. */
+const FROST_TRAIL = 4000;
 
 export function Page({
   count,
@@ -66,7 +68,8 @@ export function Page({
     // A list row sizes to its content unless told otherwise, and then nothing
     // in it can grow to share the width.
     rows.push(
-      <div key={isValidElement(node) && node.key !== null ? node.key : i} style={{ width: "100%", display: "flex", flexDirection: "column" }}>
+      <div key={isValidElement(node) && node.key !== null ? node.key : i} style={{ position: "relative", width: "100%", display: "flex", flexDirection: "column" }}>
+        <Frost trail={i === count - 1 ? FROST_TRAIL : 0} />
         {node}
       </div>,
     );

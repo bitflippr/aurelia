@@ -14,10 +14,14 @@
 //!   under UV: brightest in the middle, in its own color.
 //!
 //! Props: `tint` (`{ b, l, d, u }`: body, inner light, deep and fluorescent
-//! colors), `variant` (`tonal`, `filled`, `pearl`, `panel` or `sheet`), `theme`
-//! (`shore` or `night`), `radius` (one for every corner, or `[top left, top
-//! right, bottom right, bottom left]`), `live` (the light drifts while music plays)
-//! and `interactive` (lifts under the pointer and sinks when pressed).
+//! colors), `variant` (`tonal`, `filled`, `pearl`, `panel`, `sheet` or `frost`),
+//! `theme` (`shore` or `night`), `radius` (one for every corner, or `[top left,
+//! top right, bottom right, bottom left]`), `live` (the light drifts while music
+//! plays) and `interactive` (lifts under the pointer and sinks when pressed).
+//!
+//! A panel whose page scrolls is `plain`: the page lays `frost`, the panel's grain
+//! alone, under each of its rows, so the grain moves with the content. `trail`
+//! carries a frost on past its bottom, under the empty end of a page.
 use crate::custom_elements::{
     custom_surface, CustomElement, CustomElementFactory, CustomRenderContext,
 };
@@ -60,6 +64,7 @@ enum Variant {
     Pearl,
     Panel,
     Sheet,
+    Frost,
 }
 
 #[derive(Clone, Copy, PartialEq, Default)]
@@ -103,6 +108,8 @@ struct Glass {
     reshape: Option<([f32; 4], Instant)>,
     live: bool,
     interactive: bool,
+    plain: bool,
+    trail: f32,
     pressed: Rc<Cell<bool>>,
     drawn: bool,
 }
@@ -150,6 +157,7 @@ impl CustomElement for Glass {
                     Some("pearl") => Variant::Pearl,
                     Some("panel") => Variant::Panel,
                     Some("sheet") => Variant::Sheet,
+                    Some("frost") => Variant::Frost,
                     _ => Variant::Tonal,
                 }
             }
@@ -177,12 +185,23 @@ impl CustomElement for Glass {
             }
             "live" => self.live = value.as_bool().unwrap_or(false),
             "interactive" => self.interactive = value.as_bool().unwrap_or(false),
+            "plain" => self.plain = value.as_bool().unwrap_or(false),
+            "trail" => self.trail = value.as_f64().unwrap_or(0.0).max(0.0) as f32,
             _ => {}
         }
     }
 
     fn supported_props(&self) -> &'static [&'static str] {
-        &["tint", "variant", "theme", "radius", "live", "interactive"]
+        &[
+            "tint",
+            "variant",
+            "theme",
+            "radius",
+            "live",
+            "interactive",
+            "plain",
+            "trail",
+        ]
     }
 
     fn supported_events(&self) -> &'static [&'static str] {
@@ -218,6 +237,8 @@ impl CustomElement for Glass {
             theme: self.theme,
             radius,
             live: self.live,
+            plain: self.plain,
+            trail: self.trail,
             phase: if drifting { drift_phase() } else { 0.0 },
         };
         let interactive = self.interactive;
@@ -311,6 +332,8 @@ struct Look {
     theme: Theme,
     radius: [f32; 4],
     live: bool,
+    plain: bool,
+    trail: f32,
     phase: f32,
 }
 
@@ -349,9 +372,15 @@ fn paint(bounds: Bounds<Pixels>, look: &Look, state: State, window: &mut Window)
         bottom_left: corner(bottom_left),
     };
     match (look.variant, look.theme) {
-        (Variant::Panel | Variant::Sheet, theme) => {
-            paint_surface(bounds, radii, look.variant == Variant::Sheet, theme, window)
-        }
+        (Variant::Frost, theme) => paint_frost(bounds, look.trail, theme, window),
+        (Variant::Panel | Variant::Sheet, theme) => paint_surface(
+            bounds,
+            radii,
+            look.variant == Variant::Sheet,
+            !look.plain,
+            theme,
+            window,
+        ),
         (_, Theme::Shore) => paint_shore(bounds, radii, look, window),
         (Variant::Filled, Theme::Night) if look.live => {
             paint_fluorescent(bounds, radii, look, window)
@@ -605,6 +634,7 @@ fn paint_surface(
     bounds: Bounds<Pixels>,
     radii: Corners<Pixels>,
     sheet: bool,
+    frosted: bool,
     theme: Theme,
     window: &mut Window,
 ) {
@@ -640,16 +670,10 @@ fn paint_surface(
                     inset(0.0, 0.0, 0.0, 1.0, rgba(0xffffff66)),
                 ],
             );
-            // Surfaces are the quiet ground the glass sits on: only a trace
-            // of the frost the pieces carry.
-            paint_grain(
-                bounds,
-                radii,
-                rgba(0xffffff0f),
-                rgba(0x0a282408),
-                0.0,
-                window,
-            );
+            if frosted {
+                let (light, dark) = surface_grain(theme);
+                paint_grain(bounds, radii, light, dark, 0.0, window);
+            }
         }
         Theme::Night => {
             window.paint_outer_shadows(
@@ -677,16 +701,32 @@ fn paint_surface(
                     inset(0.0, 0.0, 0.0, 1.0, rgba(0xffffff0a)),
                 ],
             );
-            paint_grain(
-                bounds,
-                radii,
-                rgba(0xffffff06),
-                rgba(0x0000000f),
-                0.0,
-                window,
-            );
+            if frosted {
+                let (light, dark) = surface_grain(theme);
+                paint_grain(bounds, radii, light, dark, 0.0, window);
+            }
         }
     }
+}
+
+/// Surfaces are the quiet ground the glass sits on: only a trace of the frost
+/// the pieces carry.
+fn surface_grain(theme: Theme) -> (Rgba, Rgba) {
+    match theme {
+        Theme::Shore => (rgba(0xffffff0f), rgba(0x0a282408)),
+        Theme::Night => (rgba(0xffffff06), rgba(0x0000000f)),
+    }
+}
+
+/// A panel's grain alone, laid under a row of its page so it scrolls with it,
+/// and on for `trail` below.
+fn paint_frost(bounds: Bounds<Pixels>, trail: f32, theme: Theme, window: &mut Window) {
+    let bounds = Bounds {
+        origin: bounds.origin,
+        size: size(bounds.size.width, bounds.size.height + px(trail)),
+    };
+    let (light, dark) = surface_grain(theme);
+    paint_grain(bounds, Corners::default(), light, dark, 0.0, window);
 }
 
 /// Fine frost over the whole piece, about a point to a grain.
