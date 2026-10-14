@@ -1034,7 +1034,7 @@ impl State {
             settings,
             time,
         };
-        window.with_content_mask(Some(ContentMask { bounds }), |window| {
+        window.with_content_mask(Some(ContentMask::rect(bounds)), |window| {
             for (index, (line, row)) in lines.iter().zip(&layout.rows).enumerate() {
                 let top = motion.positions[index].value + motion.scroll.value;
                 if top + row.height < -height * 0.25 || top > height * 1.25 {
@@ -1304,12 +1304,10 @@ impl Painter<'_> {
                     if x1 <= x0 {
                         continue;
                     }
-                    let mask = ContentMask {
-                        bounds: Bounds::new(
-                            self.point((x0, ink_top)),
-                            size(px(x1 - x0), px(ink_height)),
-                        ),
-                    };
+                    let mask = ContentMask::rect(Bounds::new(
+                        self.point((x0, ink_top)),
+                        size(px(x1 - x0), px(ink_height)),
+                    ));
                     // Sung text turns `lit` through the feather.
                     let toward = ((1.0 - layer) / (1.0 - dim).max(0.001)).clamp(0.0, 1.0);
                     let color = blend(lit, self.color, toward);

@@ -4,11 +4,6 @@
 //! hold `still`, as soft pools in the corners, and redraw only while they
 //! fade. `theme` picks a pale shore or a dark tide pool. GPUI has no radial
 //! gradient, so each cloud is the blurred shadow of a disc.
-//!
-//! With `corners`, a radius, the element lies over a rounded panel and paints
-//! only the still ground just outside the panel's top corners. GPUI clips to
-//! rectangles, so page content running the full width would otherwise show
-//! square past the curve.
 use crate::custom_elements::{
     custom_surface, CustomElement, CustomElementFactory, CustomRenderContext,
 };
@@ -48,7 +43,6 @@ struct Clouds {
     drawn: bool,
     shore: bool,
     still: bool,
-    corners: f32,
 }
 
 impl Clouds {
@@ -87,10 +81,6 @@ impl CustomElement for Clouds {
                 self.still = value.as_bool().unwrap_or(false);
                 return;
             }
-            "corners" => {
-                self.corners = value.as_f64().unwrap_or(0.0).max(0.0) as f32;
-                return;
-            }
             "colors" => {}
             _ => return,
         }
@@ -121,7 +111,7 @@ impl CustomElement for Clouds {
     }
 
     fn supported_props(&self) -> &'static [&'static str] {
-        &["colors", "theme", "still", "corners"]
+        &["colors", "theme", "still"]
     }
 
     fn supported_events(&self) -> &'static [&'static str] {
@@ -161,7 +151,7 @@ impl CustomElement for Clouds {
         }
         let colors = self.shown();
         let seconds = self.seconds;
-        let (shore, still, corners) = (self.shore, self.still, self.corners);
+        let (shore, still) = (self.shore, self.still);
 
         custom_surface(
             div().id(SharedString::from(format!("__aurelia_clouds_{}", ctx.id))),
@@ -171,11 +161,7 @@ impl CustomElement for Clouds {
             canvas(
                 |_, _, _| {},
                 move |bounds, _, window, _| {
-                    if corners > 0.0 {
-                        paint_caps(bounds, corners, colors, shore, window);
-                        return;
-                    }
-                    window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                    window.with_content_mask(Some(ContentMask::rect(bounds)), |window| {
                         if still {
                             paint_ground(bounds, colors, shore, window)
                         } else {
@@ -289,42 +275,6 @@ fn paint_frost(bounds: Bounds<Pixels>, shore: bool, window: &mut Window) {
     window.paint_quad(fill(bounds, grain(light, dark, cell, 0.0)));
 }
 
-/// The still pools of the window's ground: where each lies, how far it
-/// reaches and its color, in painting order.
-fn ground_pools(
-    bounds: Bounds<Pixels>,
-    colors: Option<[Rgba; 3]>,
-    shore: bool,
-) -> Vec<(Point<Pixels>, f32, Hsla)> {
-    let width = f32::from(bounds.size.width);
-    let height = f32::from(bounds.size.height);
-    let at = |x: f32, y: f32| bounds.origin + point(px(width * x), px(height * y));
-    let reach = width.max(height) * 0.42;
-    let mut pools = Vec::new();
-    if !shore {
-        pools.push((
-            at(0.5, -0.16),
-            reach * 1.2,
-            Hsla::from(rgba(HAZE)).opacity(0.17),
-        ));
-    }
-    if let Some(colors) = colors {
-        let (strong, faint) = if shore { (0.62, 0.3) } else { (0.36, 0.16) };
-        pools.push((at(0.06, -0.06), reach, as_light(colors[0], shore, strong)));
-        pools.push((
-            at(0.98, 0.06),
-            reach * 0.9,
-            as_light(colors[1], shore, faint),
-        ));
-        pools.push((
-            at(0.52, 1.1),
-            reach * 1.1,
-            as_light(colors[0], shore, strong * 0.85),
-        ));
-    }
-    pools
-}
-
 /// The window's ground: still pools of the art's colors in the corners.
 fn paint_ground(
     bounds: Bounds<Pixels>,
@@ -336,100 +286,40 @@ fn paint_ground(
         bounds,
         rgba(if shore { SHORE_BASE } else { NIGHT_BASE }),
     ));
-    for (center, reach, color) in ground_pools(bounds, colors, shore) {
-        paint_cloud(center, reach, color, window);
+    let width = f32::from(bounds.size.width);
+    let height = f32::from(bounds.size.height);
+    let at = |x: f32, y: f32| bounds.origin + point(px(width * x), px(height * y));
+    let reach = width.max(height) * 0.42;
+    if !shore {
+        paint_cloud(
+            at(0.5, -0.16),
+            reach * 1.2,
+            Hsla::from(rgba(HAZE)).opacity(0.17),
+            window,
+        );
+    }
+    if let Some(colors) = colors {
+        let (strong, faint) = if shore { (0.62, 0.3) } else { (0.36, 0.16) };
+        paint_cloud(
+            at(0.06, -0.06),
+            reach,
+            as_light(colors[0], shore, strong),
+            window,
+        );
+        paint_cloud(
+            at(0.98, 0.06),
+            reach * 0.9,
+            as_light(colors[1], shore, faint),
+            window,
+        );
+        paint_cloud(
+            at(0.52, 1.1),
+            reach * 1.1,
+            as_light(colors[0], shore, strong * 0.85),
+            window,
+        );
     }
     paint_frost(bounds, shore, window);
-}
-
-/// The still ground's color at `at`, worked out as the GPU paints it: each
-/// pool's shadow over the base, blended in sRGB as GPUI's targets do.
-fn ground_color(
-    at: Point<Pixels>,
-    ground: Bounds<Pixels>,
-    colors: Option<[Rgba; 3]>,
-    shore: bool,
-) -> Rgba {
-    let mut color = rgba(if shore { SHORE_BASE } else { NIGHT_BASE });
-    for (center, reach, pool) in ground_pools(ground, colors, shore) {
-        let amount = pool.a * cloud_coverage(at, center, reach);
-        let pool = Rgba::from(pool);
-        color = Rgba {
-            r: color.r + (pool.r - color.r) * amount,
-            g: color.g + (pool.g - color.g) * amount,
-            b: color.b + (pool.b - color.b) * amount,
-            a: 1.0,
-        };
-    }
-    color
-}
-
-/// How much of a cloud from `paint_cloud` covers `at`: GPUI's shadow shader
-/// for a blurred disc, sampled the same way.
-fn cloud_coverage(at: Point<Pixels>, center: Point<Pixels>, reach: f32) -> f32 {
-    let radius = reach * 0.48;
-    let sigma = reach * 0.31;
-    let x = f32::from(at.x - center.x);
-    let y = f32::from(at.y - center.y);
-    let start = (-3.0 * sigma).clamp(y - radius, y + radius);
-    let end = (3.0 * sigma).clamp(y - radius, y + radius);
-    let step = (end - start) / 4.0;
-    let mut sample = start + step * 0.5;
-    let mut coverage = 0.0;
-    for _ in 0..4 {
-        coverage +=
-            blur_along_x(x, y - sample, sigma, radius, radius) * gaussian(sample, sigma) * step;
-        sample += step;
-    }
-    coverage.clamp(0.0, 1.0)
-}
-
-fn gaussian(x: f32, sigma: f32) -> f32 {
-    (-(x * x) / (2.0 * sigma * sigma)).exp() / ((2.0 * std::f32::consts::PI).sqrt() * sigma)
-}
-
-fn erf(v: f32) -> f32 {
-    let a = v.abs();
-    let r1 = 1.0 + (0.278393 + (0.230389 + (0.000972 + 0.078108 * a) * a) * a) * a;
-    let r2 = r1 * r1;
-    v.signum() - v.signum() / (r2 * r2)
-}
-
-fn blur_along_x(x: f32, y: f32, sigma: f32, corner: f32, half: f32) -> f32 {
-    let delta = (half - corner - y.abs()).min(0.0);
-    let curved = half - corner + (corner * corner - delta * delta).max(0.0).sqrt();
-    let scale = 0.5f32.sqrt() / sigma;
-    let low = 0.5 + 0.5 * erf((x - curved) * scale);
-    let high = 0.5 + 0.5 * erf((x + curved) * scale);
-    high - low
-}
-
-/// The ground again just outside `panel`'s rounded top corners, over whatever
-/// its page drew there. Each cap is the corner's square less a quarter circle,
-/// in the ground's color at that spot; the pools barely change over it.
-fn paint_caps(
-    panel: Bounds<Pixels>,
-    radius: f32,
-    colors: Option<[Rgba; 3]>,
-    shore: bool,
-    window: &mut Window,
-) {
-    let ground = Bounds::new(Point::default(), window.viewport_size());
-    let radius = radius.min(f32::from(panel.size.width.min(panel.size.height)) / 2.0);
-    // A cubic's control points sit this far along a quarter circle's tangents.
-    let handle = radius * (1.0 - 0.5523);
-    for (corner, inward) in [(panel.origin, 1.0), (panel.top_right(), -1.0)] {
-        let at = |x: f32, y: f32| corner + point(px(inward * x), px(y));
-        let mut cap = PathBuilder::fill();
-        cap.move_to(corner);
-        cap.line_to(at(radius, 0.0));
-        cap.cubic_bezier_to(at(0.0, radius), at(handle, 0.0), at(0.0, handle));
-        cap.close();
-        if let Ok(cap) = cap.build() {
-            let color = ground_color(at(radius * 0.22, radius * 0.22), ground, colors, shore);
-            window.paint_path(cap, Hsla::from(color));
-        }
-    }
 }
 
 /// Clouds on looping paths, then a shade toward the bottom.
