@@ -440,18 +440,18 @@ fn paint_shore(bounds: Bounds<Pixels>, radii: Corners<Pixels>, look: &Look, wind
         paint_grain(
             bounds,
             radii,
-            rgba(0xffffff14),
-            rgba(0x00000014),
-            0.0025,
+            rgba(0xffffff08),
+            rgba(0x00000008),
+            0.001,
             window,
         );
     } else {
         paint_grain(
             bounds,
             radii,
-            rgba(0xffffff1f),
-            rgba(0x0a282414),
-            0.005,
+            rgba(0xffffff0c),
+            rgba(0x0a282408),
+            0.0015,
             window,
         );
     }
@@ -520,17 +520,17 @@ fn paint_night(bounds: Bounds<Pixels>, radii: Corners<Pixels>, look: &Look, wind
         paint_grain(
             bounds,
             radii,
-            rgba(0xffffff0d),
-            rgba(0x00000029),
-            0.002,
+            rgba(0xffffff06),
+            rgba(0x00000012),
+            0.001,
             window,
         );
     } else {
         paint_grain(
             bounds,
             radii,
-            rgba(0xffffff14),
-            rgba(0x00000012),
+            rgba(0xffffff08),
+            rgba(0x00000008),
             0.0,
             window,
         );
@@ -591,9 +591,9 @@ fn paint_fluorescent(
     paint_grain(
         bounds,
         radii,
-        rgba(0xffffff1a),
-        rgba(0x00000014),
-        0.004,
+        rgba(0xffffff0a),
+        rgba(0x00000008),
+        0.0015,
         window,
     );
 }
@@ -664,9 +664,9 @@ fn paint_surface(
             // Frosted slate, a step up from the dark ground, so deep glass
             // reads as color rather than as a hole in the panel.
             let body = if sheet {
-                rgba(0x464754ff)
+                rgba(0x33343fff)
             } else {
-                rgba(0x41424feb)
+                rgba(0x2d2e3aeb)
             };
             window.paint_quad(fill(bounds, body).corner_radii(radii));
             window.paint_inset_shadows(

@@ -6,14 +6,14 @@ export type ThemeName = "shore" | "night";
  * a step up from the ground (`bg` is how the slate shows). */
 const NIGHT = {
   frame: "#09090f",
-  bg: "#3d3e4a",
-  surface: "#464754",
-  surfaceLow: "#3d3e4a",
-  surfaceHigh: "#4c4d5c",
-  surfaceHigher: "#565768",
+  bg: "#2a2b37",
+  surface: "#33343f",
+  surfaceLow: "#2a2b37",
+  surfaceHigh: "#393a47",
+  surfaceHigher: "#434453",
   text: "#eef0f7",
-  muted: "#b2b5c6",
-  faint: "#9295a9",
+  muted: "#a6a9bc",
+  faint: "#7f8297",
   primary: "#c9c4ff",
   onPrimary: "#221f6b",
   primaryContainer: "#2b2869",
@@ -26,8 +26,8 @@ const NIGHT = {
   hover: "#ffffff0d",
   pressed: "#ffffff17",
   selected: "#bdb6ff26",
-  overlay: "#464754",
-  overlayHover: "#51525f",
+  overlay: "#33343f",
+  overlayHover: "#3d3e4a",
 };
 
 /** Shore: pale, the glass lit from above. */
