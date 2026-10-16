@@ -37,7 +37,7 @@ pub async fn load(
         sanitize(tag.unwrap_or("untagged"))
     ));
     let mut url = format!(
-        "{}/Items/{}/Images/Primary?fillWidth={SOURCE_SIZE}&fillHeight={SOURCE_SIZE}&quality=85&api_key={}",
+        "{}/Items/{}/Images/Primary?fillWidth={SOURCE_SIZE}&fillHeight={SOURCE_SIZE}&quality=85&animated=false&api_key={}",
         session.server_url.trim_end_matches('/'),
         item_id,
         session.token

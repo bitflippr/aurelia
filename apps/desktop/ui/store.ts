@@ -2,6 +2,7 @@
 // with `useStore`, so a poll that only moves the clock re-renders the clock.
 import { useSyncExternalStore } from "react";
 import type { WindowState } from "@gpuix/native";
+import { loadSavedArtwork, saveArtwork } from "./covers";
 import { Library, type Song } from "./library";
 import type { Mix } from "./mixes";
 import {
@@ -120,7 +121,8 @@ const initial: State = {
   menu: null,
   toast: null,
   window: { closed: false, maximized: false, fullscreen: false, active: true, dark: true, width: 1280, height: 820, scale: 1 },
-  artwork: {},
+  // Colors taken from art in earlier sessions, so tinted glass starts tinted.
+  artwork: Object.fromEntries(Object.entries(loadSavedArtwork()).map(([id, { tag: _, ...artwork }]) => [id, artwork])),
   lyrics: {},
   artistInfo: {},
   mixes: null,
@@ -470,14 +472,24 @@ export async function createPlaylist(name: string, ids: string[] = []) {
 
 // ---- Artwork, lyrics, artists -----------------------------------------------
 
+const fetchingArtwork = new Set<string>();
+
 export function ensureArtwork(id: string | undefined, tag: string | undefined) {
-  if (!id || !tag) return;
-  const key = id;
-  if (get().artwork[key]) return;
-  set((s) => ({ artwork: { ...s.artwork, [key]: "loading" } }));
+  if (!id || !tag || fetchingArtwork.has(id)) return;
+  const current = get().artwork[id];
+  // Kept colors stand until the art itself changes, and show until new ones arrive.
+  if (current && (typeof current !== "object" || loadSavedArtwork()[id]?.tag === tag)) return;
+  fetchingArtwork.add(id);
+  if (!current) set((s) => ({ artwork: { ...s.artwork, [id]: "loading" } }));
   request<Artwork>({ type: "artwork", id, tag })
-    .then((art) => set((s) => ({ artwork: { ...s.artwork, [key]: art } })))
-    .catch(() => set((s) => ({ artwork: { ...s.artwork, [key]: "none" } })));
+    .then((art) => {
+      saveArtwork(id, tag, art);
+      set((s) => ({ artwork: { ...s.artwork, [id]: art } }));
+    })
+    .catch(() => {
+      if (typeof get().artwork[id] !== "object") set((s) => ({ artwork: { ...s.artwork, [id]: "none" } }));
+    })
+    .finally(() => fetchingArtwork.delete(id));
 }
 
 export function ensureLyrics(id: string | undefined) {

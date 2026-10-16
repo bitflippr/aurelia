@@ -1,6 +1,6 @@
 // The library as pages use it: albums and artists grouped from songs, with
 // the image tags the server cache knows.
-import type { AlbumData, ArtistData, LibraryData, Session, SongData } from "./native";
+import type { AlbumData, ArtistData, LibraryData, SongData } from "./native";
 
 export type Song = SongData & {
   /** Track artists, joined for display. */
@@ -163,13 +163,6 @@ export class Library {
 
 export function fold(value: string): string {
   return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-}
-
-/** Art filling a square of `pixels` device pixels, as the server scales it. */
-export function imageUrl(session: Session | null, itemId: string | undefined, tag: string | undefined, pixels: number) {
-  if (!session || !itemId || !tag) return undefined;
-  const base = session.serverUrl.replace(/\/$/, "");
-  return `${base}/Items/${itemId}/Images/Primary?fillWidth=${pixels}&fillHeight=${pixels}&quality=90&tag=${tag}&api_key=${session.token}`;
 }
 
 export function duration(seconds: number): string {

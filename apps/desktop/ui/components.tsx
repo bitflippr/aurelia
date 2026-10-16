@@ -3,7 +3,8 @@ import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { motion as native, type EventPayload, type MotionProps, type Props, type StyleDesc } from "@gpuix/react";
 import { Glass, TINTS, ink, mixOklab, type Tint } from "./glass";
 import { Icon, type IconName } from "./icons";
-import { imageUrl, type Album, type Artist } from "./library";
+import { useCover } from "./covers";
+import { type Album, type Artist } from "./library";
 import { albumMenu, artistMenu } from "./menus";
 import { go, openMenu, play, useStore } from "./store";
 import { C, SIZE, alpha, center, column, ellipsis, motion, radius, row, text, theme } from "./theme";
@@ -257,7 +258,7 @@ export function Artwork({
   // Art that resizes with the window is fetched at the size it settles on,
   // not at every size along the way.
   const pixels = useSettled(Math.max(1, Math.round(size * scale)));
-  const src = imageUrl(session, id, tag, pixels);
+  const src = useCover(session, id, tag, pixels);
   const corner = round ? size / 2 : r;
   const box: StyleDesc = {
     width: size,
@@ -267,16 +268,17 @@ export function Artwork({
     ...(shadow ? { boxShadow: artShadow(size) } : {}),
     ...style,
   };
-  if (!src) {
+  if (!id || !tag) {
     return (
       <div style={{ ...center, ...box, backgroundColor: C.surfaceHigh }}>
         <Icon name={round ? "user" : "music"} size={Math.max(14, Math.round(size * 0.32))} color={C.faint} />
       </div>
     );
   }
-  // Jellyfin serves animated covers as full-size GIFs whatever size is asked
-  // for, and every frame of one decodes to 100–300 MB. Show the first, shrunk
-  // to the size it is drawn.
+  if (!src) return <div style={{ ...box, backgroundColor: C.surfaceHigh }} />;
+  // Covers are fetched still, but a server without the animated artwork plugin
+  // can still serve a GIF, and every frame of one decodes to 100–300 MB. Show
+  // the first, shrunk to the size it is drawn.
   return (
     <img
       src={src}
