@@ -1,6 +1,6 @@
 // Library pages: home, albums, artists, songs, favorites, playlists, search
 // and settings.
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   AlbumCard,
   Ambient,
@@ -21,9 +21,11 @@ import { Glass, TINTS, ink, inkSoft, useAlbumTint, type Tint } from "./glass";
 import { Icon } from "./icons";
 import { longDuration, plural, type Album, type Artist, type Library, type Song } from "./library";
 import { albumMenu, songMenu } from "./menus";
+import { dailyMixes, type Mix } from "./mixes";
 import { Page, Pad, type Sticky } from "./page";
 import {
   go,
+  keepMixes,
   newPlaylist,
   openMenu,
   play,
@@ -35,7 +37,6 @@ import {
   useStore,
   type ThemePref,
   type AlbumSort,
-  type Mix,
   type SongSort,
 } from "./store";
 import { ROW_HEIGHT, TrackHeader, TrackRow, useCurrentId } from "./tracks";
@@ -60,7 +61,15 @@ function Header({ title, sub, children }: { title: string; sub?: string; childre
 
 export function Home() {
   const library = useStore((s) => s.library)!;
-  const mixes = useStore((s) => s.mixes);
+  // Built from the library, so they show with everything else. The first
+  // build each day is kept, so later syncs and launches don't reshuffle it.
+  const saved = useStore((s) => s.mixes);
+  const today = new Date().toDateString();
+  const rebuilt = useMemo(() => (saved?.day === today ? null : dailyMixes(library)), [saved, today, library]);
+  useEffect(() => {
+    if (rebuilt) keepMixes(today, rebuilt);
+  }, [rebuilt, today]);
+  const mixes = rebuilt ?? saved?.list ?? [];
 
   const quick = useMemo(() => {
     const forgotten = library.songs.filter((s) => s.fav).sort((a, b) => a.playedAt - b.playedAt).slice(0, 3);
@@ -90,7 +99,7 @@ export function Home() {
       </div>
     </Pad>,
   ];
-  if (mixes === null || mixes.length) {
+  if (mixes.length) {
     sections.push(
       <Pad key="mixes" top={20}>
         <SectionHead title="Let it play" />
@@ -138,25 +147,22 @@ export function Home() {
   return <Page count={sections.length} estimate={260} row={(i) => sections[i]} />;
 }
 
-function Mixes({ mixes, library }: { mixes: Mix[] | null; library: Library }) {
+function Mixes({ mixes, library }: { mixes: Mix[]; library: Library }) {
   const { columns } = useColumns(300);
-  const count = Math.min(columns, 3);
-  const cards = mixes ?? Array.from({ length: count }, () => null);
   return (
     <div style={{ ...row, gap: 12 }}>
-      {cards.slice(0, count).map((mix_, i) => (
-        <MixCard key={mix_?.seed ?? i} mix={mix_} library={library} />
+      {mixes.slice(0, Math.min(columns, 3)).map((mix_) => (
+        <MixCard key={mix_.seed} mix={mix_} library={library} />
       ))}
     </div>
   );
 }
 
 /** A mix is a piece of its lead album's glass. */
-function MixCard({ mix: m, library }: { mix: Mix | null; library: Library }) {
-  const albums = (m?.covers ?? []).map((id) => library.album.get(id)).filter((a): a is Album => !!a);
+function MixCard({ mix: m, library }: { mix: Mix; library: Library }) {
+  const albums = m.covers.map((id) => library.album.get(id)).filter((a): a is Album => !!a);
   const lead = albums[0];
   const tint = useAlbumTint(lead?.id, lead?.imageTag);
-  if (!m) return <div style={{ flexGrow: 1, flexBasis: 0, height: 148, borderRadius: 30, backgroundColor: alpha(C.text, 0.05) }} />;
   return (
     <div
       role="button"

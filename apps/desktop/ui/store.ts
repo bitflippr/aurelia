@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from "react";
 import type { WindowState } from "@gpuix/native";
 import { Library, type Song } from "./library";
+import type { Mix } from "./mixes";
 import {
   command,
   host,
@@ -36,7 +37,9 @@ export type MenuItem =
   | "-";
 export type Menu = { x: number; y: number; items: MenuItem[]; width?: number };
 
-export type Mix = { seed: string; title: string; subtitle: string; covers: string[]; songs: string[] };
+/** Today's "Let it play", kept so a sync or a relaunch later in the day
+ * doesn't reshuffle Home. */
+export type SavedMixes = { day: string; user: string; list: Mix[] };
 
 export type AlbumSort = "added" | "title" | "artist" | "year" | "plays";
 /** Follow the system's light or dark appearance, or keep one. */
@@ -69,7 +72,7 @@ export type State = {
   artwork: Record<string, Artwork | "loading" | "none">;
   lyrics: Record<string, Lyrics | "loading" | "none">;
   artistInfo: Record<string, { overview?: string; related: string[] } | "loading">;
-  mixes: Mix[] | null;
+  mixes: SavedMixes | null;
   albumSort: AlbumSort;
   albumGenre: string | null;
   albumLayout: "grid" | "list";
@@ -224,11 +227,32 @@ export async function runSync() {
 
 export async function loadLibrary() {
   const data = await request<LibraryData>({ type: "library" });
-  const restoreQueue = !get().library;
-  set({ library: new Library(data) });
-  if (restoreQueue) command("restoreQueue");
+  const library = new Library(data);
+  if (get().library) set({ library });
+  else {
+    // Home opens on today's saved mixes rather than swapping them in after.
+    set({ library, mixes: await loadMixes() });
+    command("restoreQueue");
+  }
   loadPlaylists();
-  loadMixes();
+}
+
+const MIXES_SETTING = "homeMixes";
+
+async function loadMixes(): Promise<SavedMixes | null> {
+  try {
+    const saved: SavedMixes | null = JSON.parse((await request<string | null>({ type: "getSetting", key: MIXES_SETTING })) ?? "null");
+    return saved?.user === get().session?.userId ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keep `list` as the day's mixes, across launches. */
+export function keepMixes(day: string, list: Mix[]) {
+  const mixes = { day, user: get().session?.userId ?? "", list };
+  set({ mixes });
+  request({ type: "setSetting", key: MIXES_SETTING, value: JSON.stringify(mixes) }).catch(() => {});
 }
 
 export async function loadPlaylists() {
@@ -257,51 +281,6 @@ export async function loadPlaylistSongs(id: string, force = false) {
   } catch {
     set((s) => ({ playlistSongs: { ...s.playlistSongs, [id]: [] } }));
   }
-}
-
-/** "Let it play": instant mixes seeded from the artists you play most. */
-export async function loadMixes() {
-  const library = get().library;
-  if (!library) return;
-  const seeds = library
-    .albumArtists()
-    .filter((artist) => !artist.id.startsWith("name:"))
-    .sort((a, b) => b.plays - a.plays)
-    .slice(0, 3);
-  const mixes = await Promise.all(
-    seeds.map(async (artist): Promise<Mix | null> => {
-      try {
-        const songs = await request<SongData[]>({ type: "mix", id: artist.id });
-        if (!songs.length) return null;
-        const genres = new Map<string, number>();
-        for (const song of songs) for (const genre of song.genres ?? []) genres.set(genre, (genres.get(genre) ?? 0) + 1);
-        const [genre, count] = [...genres].sort((a, b) => b[1] - a[1])[0] ?? ["", 0];
-        const albums: string[] = [];
-        const artists: string[] = [];
-        for (const song of songs) {
-          if (song.albumId && !albums.includes(song.albumId) && library.album.get(song.albumId)?.imageTag) albums.push(song.albumId);
-          for (const name of song.artists) if (!artists.includes(name)) artists.push(name);
-        }
-        return {
-          seed: artist.id,
-          title: count >= songs.length / 2 && genre ? `${genre} mix` : `${artist.name} mix`,
-          subtitle: artists.slice(0, 3).join(", "),
-          covers: albums.slice(0, 4),
-          songs: songs.map((song) => song.id),
-        };
-      } catch {
-        return null;
-      }
-    }),
-  );
-  // Two seeds can lean on the same genre; name the later ones for their artist.
-  const found = mixes.filter((mix): mix is Mix => !!mix);
-  const titles = new Set<string>();
-  for (const mix of found) {
-    if (titles.has(mix.title)) mix.title = `${seeds.find((s) => s.id === mix.seed)?.name ?? "Your"} mix`;
-    titles.add(mix.title);
-  }
-  set({ mixes: found });
 }
 
 // ---- Poll -----------------------------------------------------------------
