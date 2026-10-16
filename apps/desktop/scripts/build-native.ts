@@ -1,7 +1,8 @@
 /**
  * Build the GPUIX renderer with Aurelia's runtime compiled in, then publish it
- * to `.local/native/aurelia-<hash>.node` and name it in `latest.json`. A build
- * never overwrites a binding a running Aurelia has loaded.
+ * to `.local/native/aurelia-<hash>.node` and name it in `latest.json`, with a
+ * fingerprint of the sources it compiled. A build never overwrites a binding a
+ * running Aurelia has loaded.
  *
  *   bun run desktop:native
  */
@@ -10,11 +11,15 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, unlinkS
 import { join, resolve } from "node:path";
 import { prepare } from "./prepare";
 import { latestBinding, nativeDir, root } from "./paths";
+import { sourceFingerprint } from "./sources";
 
 const native = resolve(root, "vendor/gpuix/packages/native");
 const target = resolve(root, process.env.CARGO_TARGET_DIR ?? ".local/native-target");
 
 prepare();
+// Taken before compiling, so a source saved during the build makes the next
+// `bun run desktop` build again.
+const sources = sourceFingerprint();
 
 // GPUIX pins its own toolchain, which `napi build` would pick up from inside
 // the package. Build with the one Aurelia's own crates use instead. Without
@@ -62,7 +67,7 @@ mkdirSync(nativeDir, { recursive: true });
 const published = join(nativeDir, `aurelia-${hash}.node`);
 if (!existsSync(published)) copyFileSync(source, published);
 const previous = latestBinding();
-writeFileSync(join(nativeDir, "latest.json"), JSON.stringify({ native: published }));
+writeFileSync(join(nativeDir, "latest.json"), JSON.stringify({ native: published, sources }));
 
 // Keep this build and the one before it; Windows refuses to delete a binding
 // that a running Aurelia has loaded, so that one goes on a later build.

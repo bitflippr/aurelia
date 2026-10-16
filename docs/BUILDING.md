@@ -77,11 +77,12 @@ bun run desktop
   `.local/native/latest.json`, so a build never replaces a binding a running
   Aurelia has loaded. `CARGO_TARGET_DIR` moves the build cache, which defaults
   to `.local/native-target`.
-- `desktop` starts with Bun's hot reload: saving interface code updates the
-  window while the queue and playback carry on. Saving native code (the
-  runtime, the renderer extension, `crates`, the GPUIX fork or its GPUI)
+- `desktop` first rebuilds the renderer if native code (the runtime, the
+  renderer extension, `crates`, the GPUIX fork or its GPUI) changed since the
+  last build, then starts with Bun's hot reload: saving interface code updates
+  the window while the queue and playback carry on. Saving native code
   rebuilds the renderer and restarts the app on it; a failed build leaves the
-  app running. `desktop:start` runs once, without either.
+  app on the previous one. `desktop:start` runs once, without either.
 - `desktop:typecheck` checks the interface's types.
 
 Interface fonts are static cuts of Google Sans Flex (`ui/assets/fonts`, SIL
